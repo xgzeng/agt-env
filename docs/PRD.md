@@ -77,16 +77,16 @@ Priorities: **P0** is required for v1, **P1** follows soon after, and **P2** is 
 ```text
 $ agent-view
 agent-a  ~/.agent-a
-  KIND       NAME        SCOPE    STATUS    SHARED WITH
-  skill      my-skill    user     enabled   agent-b
-  skill      repo-skill  project  enabled   -
-  mcp        my-server   user     enabled   -
-  extension  my-plugin   user     disabled  -
+  KIND       NAME        SCOPE    STATUS    SHARED WITH  PATH
+  skill      my-skill    user     enabled   agent-b      ~/.agent-a/skills/my-skill
+  skill      repo-skill  project  enabled   -            ./.agent-a/skills/repo-skill
+  mcp        my-server   user     enabled   -            ~/.agent-a/config.json
+  extension  my-plugin   user     disabled  -            ~/.agent-a/plugins/my-plugin
 
 agent-b  /opt/agent-b (set by AGENT_B_HOME)
-  KIND       NAME        SCOPE    STATUS    SHARED WITH
-  skill      my-skill    user     enabled   agent-a
-  extension  other       user     unknown   -
+  KIND       NAME        SCOPE    STATUS    SHARED WITH  PATH
+  skill      my-skill    user     enabled   agent-a      /opt/agent-b/skills/my-skill (symlink)
+  extension  other       user     unknown   -            /opt/agent-b/extensions/other
 
 Hidden: agent-c, agent-d. Use --all for details.
 ```
