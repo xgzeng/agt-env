@@ -28,10 +28,10 @@ import os
 import tomllib
 from pathlib import Path
 
-from agent_view.adapters.base import Context, config_dir, load_once, unique_roots
-from agent_view.mcp import remote_details, stdio_details
-from agent_view.model import AgentReport, Item, Kind, Scope, Status
-from agent_view.skills import FoundSkill, scan_skills
+from agt_view.adapters.base import Context, config_dir, load_once, unique_roots
+from agt_view.mcp import remote_details, stdio_details
+from agt_view.model import AgentReport, Item, Kind, Scope, Status
+from agt_view.skills import FoundSkill, scan_skills
 
 _MAX_DEPTH = 6
 

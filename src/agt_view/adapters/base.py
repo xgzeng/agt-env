@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from agent_view.model import AgentReport, Item, Kind, Scope, Status
+from agt_view.model import AgentReport, Item, Kind, Scope, Status
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from agent_view.model import AgentReport, Item, Status
+from agt_view.model import AgentReport, Item, Status
 
 _ESCAPE_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\^_][^\x1b]*(?:\x1b\\)?|.)?"

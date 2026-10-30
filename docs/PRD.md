@@ -1,14 +1,14 @@
-# agent-view: Product Requirements
+# agt-view: Product Requirements
 
 | | |
 |---|---|
 | **Status** | Draft v0.1 |
 | **Date** | 2026-10-30 |
-| **Name** | Command `agent-view`; PyPI package `agt-view` |
+| **Name** | `agt-view` (command and package) |
 
 ## 1. Summary
 
-`agent-view` is a read-only CLI that answers one question: **what can each coding agent on my machine use from this directory?** It finds the skills, MCP servers, and plugins/extensions configured for each agent, puts them in one model, and shows them in the terminal.
+`agt-view` is a read-only CLI that answers one question: **what can each coding agent on my machine use from this directory?** It finds the skills, MCP servers, and plugins/extensions configured for each agent, puts them in one model, and shows them in the terminal.
 
 ## 2. Problem
 
@@ -50,10 +50,10 @@ Anyone running several coding agents has capabilities scattered across incompati
 
 ### Core scenarios
 
-1. "What do I have across all my agents?" → `agent-view`
-2. "Which MCP servers can Codex use here?" → `agent-view list --agent codex --kind mcp`
-3. "Where does this skill come from, and who else has it?" → `agent-view show my-skill`
-4. "What does this repo add to my agents?" → `agent-view list --scope project`
+1. "What do I have across all my agents?" → `agt-view`
+2. "Which MCP servers can Codex use here?" → `agt-view list --agent codex --kind mcp`
+3. "Where does this skill come from, and who else has it?" → `agt-view show my-skill`
+4. "What does this repo add to my agents?" → `agt-view list --scope project`
 
 ## 5. Functional requirements
 
@@ -63,19 +63,19 @@ Priorities: **P0** is required for v1, **P1** follows soon after, and **P2** is 
 
 | Command | Purpose | Priority |
 |---|---|---|
-| `agent-view list` | Agents and their items, filterable. This is the default command | P0 |
-| `agent-view show <name>` | All details for matching items across agents | P0 |
-| `agent-view doctor` | Broken symlinks, parse failures, drifted copies, shadowing | P1 |
-| `agent-view probe` | Opt-in live checks through agent CLIs (see 5.5) | P2 |
+| `agt-view list` | Agents and their items, filterable. This is the default command | P0 |
+| `agt-view show <name>` | All details for matching items across agents | P0 |
+| `agt-view doctor` | Broken symlinks, parse failures, drifted copies, shadowing | P1 |
+| `agt-view probe` | Opt-in live checks through agent CLIs (see 5.5) | P2 |
 
-`agent-view` with no subcommand is the same as `agent-view list` and takes the same flags. Agents appear in rank order (see section 6), each with a header showing its state and config location, followed by its items sorted by kind, then name.
+`agt-view` with no subcommand is the same as `agt-view list` and takes the same flags. Agents appear in rank order (see section 6), each with a header showing its state and config location, followed by its items sorted by kind, then name.
 
 **Flags:** `--all`, `--agent <id>` (repeatable), `--kind <kind>` (repeatable), `--scope user|project|system`, `--cwd <path>`, `--no-color`.
 
 **Illustrative output:**
 
 ```text
-$ agent-view
+$ agt-view
 agent-a  ~/.agent-a
   KIND       NAME        SCOPE    STATUS    SHARED WITH  PATH
   skill      my-skill    user     enabled   agent-b      ~/.agent-a/skills/my-skill
@@ -201,7 +201,7 @@ The ranking can change without affecting the architecture.
 
 | Area | Requirement |
 |---|---|
-| **Performance** | `agent-view list` finishes in under 200 ms on a reference fixture of 10 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
+| **Performance** | `agt-view list` finishes in under 200 ms on a reference fixture of 10 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
 | **Distribution** | Published to PyPI and runnable with `uvx agt-view`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical |
 | **Portability** | Linux and macOS, on any home directory layout, shell, or version manager |
 | **Extensibility** | A new adapter touches only its own module, fixtures, and one registry line |
@@ -217,9 +217,9 @@ These are acceptance checks, all run against fixtures in CI:
 3. **Secret safety:** a test config with planted secrets produces no secret text in any command's output.
 4. **Inertness:** a test project config naming a marker-writing command leaves no marker after any P0 command.
 5. **Resilience:** corrupting any single agent's config still produces full results for the others, with exit code 0 and a warning.
-6. **Clean start:** with an empty `HOME` and no agents on `PATH`, `agent-view list` exits 0 with a clear message.
+6. **Clean start:** with an empty `HOME` and no agents on `PATH`, `agt-view list` exits 0 with a clear message.
 7. **Speed:** the 200 ms target holds on the reference fixture.
-8. **Zero-install run:** in a clean environment, `uvx` runs the built package and `agent-view` produces correct output.
+8. **Zero-install run:** in a clean environment, `uvx` runs the built package and `agt-view` produces correct output.
 
 ## 9. Risks
 

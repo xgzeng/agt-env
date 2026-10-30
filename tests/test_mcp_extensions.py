@@ -2,12 +2,12 @@ import json
 
 import pytest
 
-from agent_view.adapters.base import Context
-from agent_view.adapters.claude_code import ClaudeCode
-from agent_view.adapters.codex import Codex
-from agent_view.cli import main
-from agent_view.mcp import safe_url
-from agent_view.model import Kind
+from agt_view.adapters.base import Context
+from agt_view.adapters.claude_code import ClaudeCode
+from agt_view.adapters.codex import Codex
+from agt_view.cli import main
+from agt_view.mcp import safe_url
+from agt_view.model import Kind
 
 STDIO = {"command": "/bin/true"}
 

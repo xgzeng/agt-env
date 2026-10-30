@@ -6,11 +6,11 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from agent_view import __version__
-from agent_view.adapters import ADAPTERS
-from agent_view.adapters.base import Context
-from agent_view.model import AgentReport, Item, Kind, Scope
-from agent_view.render import clean, render_report
+from agt_view import __version__
+from agt_view.adapters import ADAPTERS
+from agt_view.adapters.base import Context
+from agt_view.model import AgentReport, Item, Kind, Scope
+from agt_view.render import clean, render_report
 
 _COMMANDS = {"list"}
 _TOP_LEVEL_FLAGS = {"-h", "--help", "--version"}
@@ -18,11 +18,11 @@ _TOP_LEVEL_FLAGS = {"-h", "--help", "--version"}
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agent-view",
+        prog="agt-view",
         description="List what each coding agent can use from this directory. "
         "With no command, runs `list`.",
     )
-    parser.add_argument("--version", action="version", version=f"agent-view {__version__}")
+    parser.add_argument("--version", action="version", version=f"agt-view {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
     list_parser = commands.add_parser("list", help="list agents and their items")
@@ -141,6 +141,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         # The reader closed the pipe, as with `| head`; stop quietly.
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
     except OSError as error:
-        print(f"agent-view: {clean(str(error))}", file=sys.stderr)
+        print(f"agt-view: {clean(str(error))}", file=sys.stderr)
         return 1
     return 0

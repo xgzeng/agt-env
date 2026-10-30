@@ -5,7 +5,7 @@ import re
 import pytest
 from conftest import write_skill
 
-from agent_view.cli import main
+from agt_view.cli import main
 
 
 def run(capsys, *args):

@@ -1,6 +1,6 @@
 """Compare discovery with Codex's own listing on the same fixture.
 
-Runs only when AGENT_VIEW_CODEX points at a real Codex binary, and never touches
+Runs only when AGT_VIEW_CODEX points at a real Codex binary, and never touches
 the developer's configuration: HOME and CODEX_HOME are temporary.
 """
 
@@ -11,11 +11,11 @@ import subprocess
 import pytest
 from conftest import write_skill
 
-from agent_view.adapters.base import Context
-from agent_view.adapters.codex import Codex
-from agent_view.model import Kind, Scope, Status
+from agt_view.adapters.base import Context
+from agt_view.adapters.codex import Codex
+from agt_view.model import Kind, Scope, Status
 
-CODEX = os.environ.get("AGENT_VIEW_CODEX")
+CODEX = os.environ.get("AGT_VIEW_CODEX")
 
 
 def codex_skills(home, cwd):
@@ -51,7 +51,7 @@ def codex_skills(home, cwd):
         process.wait()
 
 
-@pytest.mark.skipif(not CODEX, reason="AGENT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
 def test_matches_codex_listing(tmp_path, monkeypatch):
     home, project = tmp_path / "home", tmp_path / "project"
     agents = home / ".agents" / "skills"
@@ -119,7 +119,7 @@ def codex_mcp_servers(home, cwd):
     return {server["name"]: server for server in json.loads(output)}
 
 
-@pytest.mark.skipif(not CODEX, reason="AGENT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
 @pytest.mark.parametrize("trusted", [False, True])
 def test_mcp_matches_codex_listing(tmp_path, trusted):
     home, project = tmp_path / "home", tmp_path / "project"

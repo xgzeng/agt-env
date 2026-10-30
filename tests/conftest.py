@@ -39,7 +39,7 @@ def machine(tmp_path, monkeypatch):
     monkeypatch.chdir(Machine.project)
 
     # Keep machine-wide locations inside the fixture too.
-    from agent_view.adapters import base
+    from agt_view.adapters import base
 
     original = base.Context.__init__
 
