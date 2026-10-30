@@ -37,9 +37,7 @@ def item_path(item: Item, *, home: Path, cwd: Path) -> str:
 
 
 def header(report: AgentReport, *, home: Path, cwd: Path) -> str:
-    location = (
-        display_path(report.config_path, home=home, cwd=cwd) if report.config_path else ""
-    )
+    location = display_path(report.config_path, home=home, cwd=cwd) if report.config_path else ""
     if report.active:
         note = f" (set by {report.override_var})" if report.override_var else ""
         return f"{location}{note}"

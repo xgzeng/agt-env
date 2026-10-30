@@ -1,5 +1,6 @@
 """The adapter interface and helpers shared by adapters."""
 
+import json
 import os
 import shutil
 from collections.abc import Mapping
@@ -7,7 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from agt_view.jsonc import loads_jsonc
 from agt_view.model import AgentReport, Item, Kind, Scope, Status
+from agt_view.skills import FoundSkill
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,99 @@ def config_dir(context: Context, variable: str, default: Path) -> tuple[Path, st
         return default, None
     path = Path(value).expanduser()
     return path, variable if os.path.realpath(path) != os.path.realpath(default) else None
+
+
+def read_json(
+    path: Path, warnings: list[str], *, jsonc: bool = False, blank_ok: bool = False
+) -> tuple[dict, bool]:
+    """Return the file's top-level object and whether it could be read.
+
+    A missing file is normal. A non-object is treated as empty.
+    """
+    if not os.path.isfile(path):
+        return {}, True
+    try:
+        with open(path, encoding="utf-8") as file:
+            text = file.read()
+        if blank_ok and not text.strip():
+            return {}, True
+        data = loads_jsonc(text) if jsonc else json.loads(text)
+    except (OSError, ValueError) as error:
+        warnings.append(f"cannot read {path}: {error}")
+        return {}, False
+    return (data if isinstance(data, dict) else {}), True
+
+
+def first_existing(*paths: Path) -> Path | None:
+    return next((path for path in paths if os.path.exists(path)), None)
+
+
+def list_entries(directory: Path, warnings: list[str]) -> list[Path]:
+    """Return a directory's non-hidden entries. Only an unreadable directory warns."""
+    try:
+        with os.scandir(directory) as iterator:
+            names = sorted(entry.name for entry in iterator)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    except OSError as error:
+        warnings.append(f"cannot read {directory}: {error.strerror}")
+        return []
+    return [directory / name for name in names if not name.startswith(".")]
+
+
+def skill_item(agent: str, skill: FoundSkill, scope: Scope, status: Status) -> Item:
+    fields = skill.fields or {}
+    return Item(
+        name=fields.get("name") or skill.default_name,
+        kind=Kind.SKILL,
+        native_kind="skill",
+        agent=agent,
+        scope=scope,
+        status=status,
+        description=fields.get("description", ""),
+        source_path=skill.path,
+        resolved_path=skill.resolved_path,
+    )
+
+
+def mcp_item(
+    agent: str, name: str, details: dict | None, scope: Scope, status: Status, path: Path
+) -> Item:
+    """Build a server item. Details of None mean the entry is invalid."""
+    return Item(
+        name=name,
+        kind=Kind.MCP,
+        native_kind="mcp server",
+        agent=agent,
+        scope=scope,
+        status=Status.BROKEN if details is None else status,
+        description="",
+        source_path=path,
+        resolved_path=Path(os.path.realpath(path)),
+        details=details or {},
+    )
+
+
+def extension_item(
+    agent: str,
+    name: str,
+    native_kind: str,
+    scope: Scope,
+    status: Status,
+    path: Path,
+    description: str = "",
+) -> Item:
+    return Item(
+        name=name,
+        kind=Kind.EXTENSION,
+        native_kind=native_kind,
+        agent=agent,
+        scope=scope,
+        status=status,
+        description=description,
+        source_path=path,
+        resolved_path=Path(os.path.realpath(path)),
+    )
 
 
 def load_once(items: list[Item]) -> list[Item]:

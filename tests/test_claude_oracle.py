@@ -24,6 +24,7 @@ pytestmark = pytest.mark.skipif(not CLAUDE, reason="AGT_VIEW_CLAUDE is not set")
 def claude(home, cwd, *args):
     return subprocess.run(
         [CLAUDE, *args],
+        check=False,
         cwd=cwd,
         env={"PATH": os.environ["PATH"], "HOME": str(home), "DISABLE_AUTOUPDATER": "1"},
         capture_output=True,
@@ -79,7 +80,11 @@ def test_mcp_matches_claude_listing(tmp_path, trusted):
     )
     (project / ".mcp.json").write_text(
         json.dumps(
-            {"mcpServers": {name: STDIO for name in ("p-none", "p-entry", "p-shared", "p-local", "p-user")}}
+            {
+                "mcpServers": {
+                    name: STDIO for name in ("p-none", "p-entry", "p-shared", "p-local", "p-user")
+                }
+            }
         )
     )
     (project / ".claude" / "settings.json").write_text('{"enabledMcpjsonServers": ["p-shared"]}')
@@ -137,9 +142,7 @@ def test_plugins_match_claude_listing(tmp_path):
         for p in json.loads(claude(home, project, "plugin", "list", "--json"))
     }
     ours = {
-        item.name: item
-        for item in scan(tmp_path, home, project)
-        if item.kind is Kind.EXTENSION
+        item.name: item for item in scan(tmp_path, home, project) if item.kind is Kind.EXTENSION
     }
     print(theirs)
     # Theirs may include other projects' installs, marked with their projectPath.

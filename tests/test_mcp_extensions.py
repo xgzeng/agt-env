@@ -393,7 +393,11 @@ def test_secrets_not_kept_in_item_details(machine):
     assert len(servers) == 4
     assert SECRET not in repr(servers)
     remote = next(s.details for s in servers if s.details.get("transport") == "http")
-    assert remote == {"transport": "http", "url": "https://x.test/mcp", "headers": ["Authorization"]}
+    assert remote == {
+        "transport": "http",
+        "url": "https://x.test/mcp",
+        "headers": ["Authorization"],
+    }
 
 
 def test_listing_never_starts_a_server(machine, capsys, tmp_path):
@@ -414,7 +418,13 @@ def test_listing_never_starts_a_server(machine, capsys, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "corrupted", [".claude.json", ".mcp.json", ".claude/settings.json", ".claude/plugins/installed_plugins.json"]
+    "corrupted",
+    [
+        ".claude.json",
+        ".mcp.json",
+        ".claude/settings.json",
+        ".claude/plugins/installed_plugins.json",
+    ],
 )
 def test_corrupt_claude_files_warn_and_keep_other_agents(machine, capsys, corrupted):
     machine.install("claude", "codex")

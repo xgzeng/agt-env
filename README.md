@@ -2,7 +2,7 @@
 
 A read-only CLI that shows what each coding agent on your machine can use from the current directory.
 
-**Status:** early development. It currently lists **skills**, **MCP servers**, and **extensions** for **Claude Code** and **Codex**. More agents are planned; see the [product requirements](docs/PRD.md).
+**Status:** early development. It currently lists **skills**, **MCP servers**, and **extensions** for **Claude Code**, **Codex**, **OpenCode**, **Pi**, and **Antigravity CLI**. More agents are planned; see the [product requirements](docs/PRD.md). [Agent discovery rules](docs/agents/README.md) describes how each agent finds these.
 
 ## Usage
 
@@ -23,5 +23,7 @@ uv run agt-view   # run from source
 uv run pytest     # run the tests
 
 # Also compare results with real agents, in a temporary HOME
-AGT_VIEW_CODEX=/path/to/codex AGT_VIEW_CLAUDE=/path/to/claude uv run pytest
+AGT_VIEW_CLAUDE=/path/to/claude AGT_VIEW_CODEX=/path/to/codex \
+AGT_VIEW_OPENCODE=/path/to/opencode AGT_VIEW_PI=/path/to/pi AGT_VIEW_AGY=/path/to/agy \
+uv run pytest
 ```

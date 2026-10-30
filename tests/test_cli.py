@@ -382,13 +382,13 @@ def test_hostile_content_cannot_control_the_terminal(machine, capsys):
     skills = claude(machine) / "skills"
     write_skill(skills / "evil", 'name: "\\x1b"')
     (skills / "evil" / "SKILL.md").write_text(
-        "---\nname: a\x1b[31mred\x1b]0;title\x07b‮c\n---\n"
+        "---\nname: a\x1b[31mred\x1b]0;title\x07b\u202ec\n---\n"
     )
     (skills / "tab\x1b[2Jdir").mkdir()
     (skills / "tab\x1b[2Jdir" / "SKILL.md").write_text("x")
     code, out, _ = run(capsys)
     assert code == 0
-    assert "\x1b" not in out and "\x07" not in out and "‮" not in out
+    assert "\x1b" not in out and "\x07" not in out and "\u202e" not in out
     assert "aredbc" in out
 
 

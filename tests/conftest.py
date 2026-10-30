@@ -32,7 +32,15 @@ def machine(tmp_path, monkeypatch):
 
     for directory in (Machine.home, Machine.project, Machine.bin, Machine.system):
         directory.mkdir()
-    for variable in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "NO_COLOR"):
+    for variable in (
+        "CLAUDE_CONFIG_DIR",
+        "CODEX_HOME",
+        "NO_COLOR",
+        "OPENCODE_CONFIG",
+        "OPENCODE_CONFIG_DIR",
+        "PI_CODING_AGENT_DIR",
+        "XDG_CONFIG_HOME",
+    ):
         monkeypatch.delenv(variable, raising=False)
     monkeypatch.setenv("HOME", str(Machine.home))
     monkeypatch.setenv("PATH", str(Machine.bin))

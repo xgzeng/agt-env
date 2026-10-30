@@ -1,26 +1,8 @@
 """Codex adapter.
 
-Sources: the Codex skills, config, MCP, and plugin documentation, plus behavior observed
-from `codex app-server` and `codex mcp list` with Codex 0.166.0; see
-tests/test_codex_oracle.py.
-
-Observed but undocumented:
-- `$CODEX_HOME/skills` and a project's `.codex/skills` are also read, the latter even
-  when the project isn't trusted.
-- Discovery recurses six levels below a root, into skill directories too, and skips
-  hidden directories. `$CODEX_HOME/skills/.system` holds bundled skills.
-- `description` is required and `name` defaults to the directory name.
-- A skill linked from both user and project roots loads once, as a user skill.
-  Different skills sharing a name all load.
-- `[[skills.config]]` disables a skill only when `path` names its SKILL.md file.
-- An MCP server without `enabled` is enabled. One with neither `command` nor `url` makes
-  Codex reject the whole config file.
-
-Plugin rules are less certain. `[plugins."name@marketplace"]` is documented, but the
-`plugins/cache/<marketplace>/<name>/<version>` layout and `.codex-plugin/plugin.json`
-were only seen in real installs, and Codex's plugin listing can't confirm them without
-a marketplace. Cached plugins with no config entry aren't listed: being cached doesn't
-mean they're available.
+Discovery rules, official references, and undocumented findings are in
+docs/agents/codex.md. Update that file when these rules change. tests/test_codex_oracle.py
+compares results with the real agent.
 """
 
 import json
@@ -49,7 +31,7 @@ class Codex:
             agent=self.id,
             installed=context.on_path("codex"),
             config_path=config_path,
-            override_var=override,
+            override_var=override if config_path == codex_home else None,
         )
 
         user_path = codex_home / "config.toml"
@@ -95,9 +77,7 @@ class Codex:
             resolved_path=skill.resolved_path,
         )
 
-    def _mcp_servers(
-        self, config: dict, scope: Scope, path: Path, default: Status
-    ) -> list[Item]:
+    def _mcp_servers(self, config: dict, scope: Scope, path: Path, default: Status) -> list[Item]:
         servers = config.get("mcp_servers")
         items = []
         for name, entry in servers.items() if isinstance(servers, dict) else ():

@@ -41,10 +41,18 @@ def codex_skills(home, cwd):
         raise AssertionError("codex app-server exited early")
 
     try:
-        send({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "t", "version": "0"}}})
+        send(
+            {
+                "id": 1,
+                "method": "initialize",
+                "params": {"clientInfo": {"name": "t", "version": "0"}},
+            }
+        )
         response(1)
         send({"method": "initialized", "params": {}})
-        send({"id": 2, "method": "skills/list", "params": {"cwds": [str(cwd)], "forceReload": True}})
+        send(
+            {"id": 2, "method": "skills/list", "params": {"cwds": [str(cwd)], "forceReload": True}}
+        )
         return response(2)["data"][0]
     finally:
         process.kill()
@@ -110,6 +118,7 @@ def test_matches_codex_listing(tmp_path, monkeypatch):
 def codex_mcp_servers(home, cwd):
     output = subprocess.run(
         [CODEX, "mcp", "list", "--json"],
+        check=False,
         cwd=cwd,
         env={"PATH": os.environ["PATH"], "HOME": str(home), "CODEX_HOME": str(home / ".codex")},
         capture_output=True,

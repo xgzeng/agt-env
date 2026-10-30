@@ -1,33 +1,25 @@
 """Claude Code adapter.
 
-Sources: https://code.claude.com/docs/en/skills, /mcp, /managed-mcp, /settings, and
-/plugins-reference, checked against Claude Code 2.1.314 where it can report on them;
-see tests/test_claude_oracle.py. Claude Code has no non-interactive skill listing, so
-skill rules are documented rather than observed.
-
-Observed but undocumented:
-- With `CLAUDE_CONFIG_DIR`, `.claude.json` lives in that directory, not HOME.
-- User MCP servers are the top-level `mcpServers` in `.claude.json`, and approvals can
-  also be stored in its entry for the project.
-- `plugins/installed_plugins.json` records installed plugins.
-
-Assumed where the docs are silent: `CLAUDE_CONFIG_DIR` also moves personal skills. The
-docs say a plugin missing from `enabledPlugins` starts enabled, but 2.1.314 reported one
-as disabled, so that state is `unknown`.
-
-Not listed yet: MCP servers and skills bundled in plugins, and `skills/synced`, which
-holds claude.ai account skills in an undocumented layout.
+Discovery rules, official references, and undocumented findings are in
+docs/agents/claude-code.md. Update that file when these rules change. tests/test_claude_oracle.py
+compares results with the real agent.
 """
 
 import fnmatch
-import json
 import os
 import re
 import sys
 import unicodedata
 from pathlib import Path
 
-from agt_view.adapters.base import Context, config_dir, load_once, unique_roots
+from agt_view.adapters.base import (
+    Context,
+    config_dir,
+    first_existing,
+    load_once,
+    read_json,
+    unique_roots,
+)
 from agt_view.mcp import remote_details, stdio_details
 from agt_view.model import AgentReport, Item, Kind, Scope, Status
 from agt_view.skills import FoundSkill, scan_skills
@@ -49,11 +41,12 @@ class ClaudeCode:
         project_mcp_path = context.cwd / ".mcp.json"
         managed_dir = _managed_dir(context)
 
+        config_path = first_existing(user_dir, user_state_path, project_dir, project_mcp_path)
         report = AgentReport(
             agent=self.id,
             installed=context.on_path("claude"),
-            config_path=_first_existing(user_dir, user_state_path, project_dir, project_mcp_path),
-            override_var=override,
+            config_path=config_path,
+            override_var=override if config_path in (user_dir, user_state_path) else None,
         )
 
         settings = _Settings(
@@ -63,7 +56,7 @@ class ClaudeCode:
             managed=managed_dir / "managed-settings.json",
             warnings=report.warnings,
         )
-        state, state_ok = _read_json(user_state_path, report.warnings)
+        state, state_ok = read_json(user_state_path, report.warnings)
         projects = state.get("projects")
         project_state = projects.get(str(context.cwd)) if isinstance(projects, dict) else None
         if not isinstance(project_state, dict):
@@ -113,7 +106,7 @@ class ClaudeCode:
         self, user_dir: Path, context: Context, settings: "_Settings", warnings: list[str]
     ) -> list[Item]:
         record_path = user_dir / "plugins" / "installed_plugins.json"
-        record, _ = _read_json(record_path, warnings)
+        record, _ = read_json(record_path, warnings)
         plugins = record.get("plugins")
         items = []
         for plugin_id, installs in plugins.items() if isinstance(plugins, dict) else ():
@@ -167,7 +160,7 @@ class _Settings:
         self.layers = (self.user, self.project, self.local, self.managed)
 
     def _load(self, path: Path, warnings: list[str]) -> dict:
-        data, ok = _read_json(path, warnings)
+        data, ok = read_json(path, warnings)
         self.reliable = self.reliable and ok
         return data
 
@@ -227,11 +220,9 @@ class _McpRules:
         # When this file exists, Claude Code loads only managed servers.
         self.exclusive = os.path.exists(self.managed_path)
 
-    def items(
-        self, agent: str, state: dict, user_path: Path, project_path: Path
-    ) -> list[Item]:
-        managed_file, _ = _read_json(self.managed_path, self.warnings)
-        project_file, project_ok = _read_json(project_path, self.warnings)
+    def items(self, agent: str, state: dict, user_path: Path, project_path: Path) -> list[Item]:
+        managed_file, _ = read_json(self.managed_path, self.warnings)
+        project_file, project_ok = read_json(project_path, self.warnings)
         sources: list[tuple[object, Scope, Path, bool]] = [
             (managed_file.get("mcpServers"), Scope.SYSTEM, self.managed_path, True),
             (
@@ -357,35 +348,15 @@ def _server_details(entry: object) -> dict[str, object] | None:
     return None
 
 
-def _read_json(path: Path, warnings: list[str]) -> tuple[dict, bool]:
-    """Return the file's top-level object and whether it could be read.
-
-    A missing file is normal. A non-object is treated as empty.
-    """
-    if not os.path.isfile(path):
-        return {}, True
-    try:
-        with open(path, encoding="utf-8") as file:
-            data = json.load(file)
-    except (OSError, ValueError) as error:
-        warnings.append(f"cannot read {path}: {error}")
-        return {}, False
-    return (data if isinstance(data, dict) else {}), True
-
-
 def _quiet_json(path: Path) -> dict:
     """Read optional metadata, where a bad file just means less detail."""
-    return _read_json(path, [])[0]
+    return read_json(path, [])[0]
 
 
 def _managed_dir(context: Context) -> Path:
     if sys.platform == "darwin":
         return context.system_root / "Library" / "Application Support" / "ClaudeCode"
     return context.system_root / "etc" / "claude-code"
-
-
-def _first_existing(*paths: Path) -> Path | None:
-    return next((path for path in paths if os.path.exists(path)), None)
 
 
 def _first_line(body: str) -> str:
@@ -396,6 +367,4 @@ def _is_loadable_name(name: str) -> bool:
     """Claude Code refuses these names, per the skills documentation."""
     if name == "anthropic-skills" or name.startswith("anthropic-skills:"):
         return False
-    return not any(
-        char in "<>" or unicodedata.category(char) in ("Cc", "Cf") for char in name
-    )
+    return not any(char in "<>" or unicodedata.category(char) in ("Cc", "Cf") for char in name)

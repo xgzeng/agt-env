@@ -1,5 +1,6 @@
 """Safe summaries of MCP server entries. Values that could hold secrets stay out."""
 
+import re
 from collections.abc import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
@@ -23,6 +24,11 @@ def safe_url(url: object) -> str | None:
         return urlunsplit((parts.scheme, host, parts.path, "", ""))
     except ValueError:
         return None
+
+
+def without_credentials(text: str) -> str:
+    """Remove `user:password@` from any URL inside a package source or similar."""
+    return re.sub(r"(://)[^/@\s]+@", r"\1", text)
 
 
 def _names(values: object) -> list[str]:
