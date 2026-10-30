@@ -6,7 +6,13 @@ A read-only CLI that shows what each coding agent on your machine can use from t
 
 ## Usage
 
-Run it from your project root to include project-level configuration:
+The PyPI package is named `agt-view`. Once it's published, you can run it without installing:
+
+```sh
+uvx agt-view
+```
+
+Run it from your project root to include project-level configuration. If you install it, the command is `agent-view`:
 
 ```sh
 agent-view                              # list everything for active agents

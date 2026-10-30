@@ -1,5 +1,5 @@
 [project]
-name = "agent-view"
+name = "agt-view"
 version = "0.1.0"
 description = "List the skills, MCP servers, and extensions available to each coding agent"
 readme = "README.md"
@@ -10,6 +10,7 @@ dependencies = []
 
 [project.scripts]
 agent-view = "agent_view.cli:main"
+agt-view = "agent_view.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

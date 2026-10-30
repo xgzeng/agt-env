@@ -1,0 +1,60 @@
+name: Publish to PyPI
+
+# Publishing a GitHub release whose tag is v<version> uploads that version to PyPI.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v10.3.3
+
+      - name: Check the release tag matches the project version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="$(uv version --short)"
+          if [ "$TAG" != "v$version" ]; then
+            echo "Release tag $TAG doesn't match project version $version" >&2
+            exit 1
+          fi
+
+      - name: Run tests
+        run: uv run --python 3.11 pytest
+
+      - name: Build
+        run: uv build
+
+      - name: Check the built package runs
+        run: uvx --isolated --from "$(echo dist/*.whl)" agt-view --version
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/agt-view/
+    permissions:
+      id-token: write # PyPI trusted publishing, so no API token is stored
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@v1.14.3

@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Draft v0.1 |
 | **Date** | 2026-10-30 |
-| **Working name** | `agent-view` (command and package) |
+| **Name** | Command `agent-view`; PyPI package `agt-view` |
 
 ## 1. Summary
 
@@ -202,7 +202,7 @@ The ranking can change without affecting the architecture.
 | Area | Requirement |
 |---|---|
 | **Performance** | `agent-view list` finishes in under 200 ms on a reference fixture of 10 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
-| **Distribution** | Published to PyPI and runnable with `uvx agent-view`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical |
+| **Distribution** | Published to PyPI and runnable with `uvx agt-view`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical |
 | **Portability** | Linux and macOS, on any home directory layout, shell, or version manager |
 | **Extensibility** | A new adapter touches only its own module, fixtures, and one registry line |
 
