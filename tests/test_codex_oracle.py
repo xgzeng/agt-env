@@ -13,7 +13,7 @@ from conftest import write_skill
 
 from agent_view.adapters.base import Context
 from agent_view.adapters.codex import Codex
-from agent_view.model import Scope, Status
+from agent_view.model import Kind, Scope, Status
 
 CODEX = os.environ.get("AGENT_VIEW_CODEX")
 
@@ -100,8 +100,55 @@ def test_matches_codex_listing(tmp_path, monkeypatch):
     ours = sorted(
         (item.name, item.scope.value, item.status is Status.ENABLED)
         for item in report.items
-        if item.status is not Status.BROKEN
+        if item.kind is Kind.SKILL and item.status is not Status.BROKEN
     )
     assert ours == expected
     assert {item.name for item in report.items if item.status is Status.BROKEN} == failed
     assert any(item.scope is Scope.SYSTEM for item in report.items)
+
+
+def codex_mcp_servers(home, cwd):
+    output = subprocess.run(
+        [CODEX, "mcp", "list", "--json"],
+        cwd=cwd,
+        env={"PATH": os.environ["PATH"], "HOME": str(home), "CODEX_HOME": str(home / ".codex")},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    ).stdout
+    return {server["name"]: server for server in json.loads(output)}
+
+
+@pytest.mark.skipif(not CODEX, reason="AGENT_VIEW_CODEX is not set")
+@pytest.mark.parametrize("trusted", [False, True])
+def test_mcp_matches_codex_listing(tmp_path, trusted):
+    home, project = tmp_path / "home", tmp_path / "project"
+    (home / ".codex").mkdir(parents=True)
+    (project / ".codex").mkdir(parents=True)
+    config = """
+[mcp_servers.u-stdio]
+command = "/bin/true"
+[mcp_servers.u-http]
+url = "http://127.0.0.1:9/mcp"
+[mcp_servers.u-off]
+command = "/bin/true"
+enabled = false
+"""
+    if trusted:
+        config += f'[projects."{project}"]\ntrust_level = "trusted"\n'
+    (home / ".codex" / "config.toml").write_text(config)
+    (project / ".codex" / "config.toml").write_text('[mcp_servers.p-srv]\ncommand = "/bin/true"\n')
+
+    theirs = codex_mcp_servers(home, project)
+    report = Codex().scan(
+        Context(home=home, cwd=project, env={"PATH": ""}, system_root=tmp_path / "system")
+    )
+    ours = {item.name: item for item in report.items if item.kind is Kind.MCP}
+
+    # An untrusted project's servers aren't loaded yet, so Codex doesn't list them.
+    assert ours["p-srv"].status is (Status.ENABLED if trusted else Status.PENDING)
+    loaded = {name: item for name, item in ours.items() if item.status is not Status.PENDING}
+    assert set(loaded) == set(theirs)
+    for name, server in theirs.items():
+        assert (loaded[name].status is Status.ENABLED) is server["enabled"]
+        assert loaded[name].details["transport"] == server["transport"]["type"]

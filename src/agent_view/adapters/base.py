@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from agent_view.model import AgentReport, Item, Scope, Status
+from agent_view.model import AgentReport, Item, Kind, Scope, Status
 
 
 @dataclass(frozen=True)
@@ -39,11 +39,13 @@ def config_dir(context: Context, variable: str, default: Path) -> tuple[Path, st
 
 
 def load_once(items: list[Item]) -> list[Item]:
-    """Keep the first item per real path: agents load a linked skill only once."""
+    """Keep the first skill per real path: agents load a linked skill only once."""
     seen: set[Path] = set()
     unique = []
     for item in items:
-        if item.status is Status.BROKEN or item.resolved_path not in seen:
+        if item.kind is not Kind.SKILL or item.status is Status.BROKEN:
+            unique.append(item)
+        elif item.resolved_path not in seen:
             seen.add(item.resolved_path)
             unique.append(item)
     return unique

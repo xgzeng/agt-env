@@ -8,6 +8,8 @@ from pathlib import Path
 
 class Kind(StrEnum):
     SKILL = "skill"
+    MCP = "mcp"
+    EXTENSION = "extension"
 
 
 class Scope(StrEnum):
@@ -19,6 +21,7 @@ class Scope(StrEnum):
 class Status(StrEnum):
     ENABLED = "enabled"
     DISABLED = "disabled"
+    PENDING = "pending"
     BROKEN = "broken"
     UNKNOWN = "unknown"
 

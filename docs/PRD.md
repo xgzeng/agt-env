@@ -138,7 +138,7 @@ Every item has these fields, and adapters must fill them consistently:
 | `native_kind` | The agent's own term | `plugin` |
 | `agent` | Agent ID (see section 6) | `agent-a` |
 | `scope` | `user`, `project`, or `system` | `user` |
-| `status` | `enabled`, `disabled`, `broken`, or `unknown` | `enabled` |
+| `status` | `enabled`, `disabled`, `pending` (waiting for the user to approve or trust it), `broken`, or `unknown` | `enabled` |
 | `description` | Short description, if the source has one | What the skill does and when to use it. |
 | `source_path` | Where the item was found | `/home/me/.agent-a/skills/my-skill` |
 | `resolved_path` | Real path after following symlinks | `/home/me/shared-skills/my-skill` |

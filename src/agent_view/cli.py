@@ -58,16 +58,18 @@ def _use_color(no_color_flag: bool) -> bool:
 
 
 def _mark_shared(reports: list[AgentReport]) -> None:
-    """Record, on each item, the other given agents using the same real path."""
+    """Record, on each skill, the other given agents using the same real path."""
     users: dict[Path, set[str]] = {}
     for report in reports:
         for item in report.items:
-            users.setdefault(item.resolved_path, set()).add(report.agent)
+            if item.kind is Kind.SKILL:
+                users.setdefault(item.resolved_path, set()).add(report.agent)
     order = {adapter.id: rank for rank, adapter in enumerate(ADAPTERS)}
     for report in reports:
         for item in report.items:
-            others = users[item.resolved_path] - {report.agent}
-            item.shared_with = sorted(others, key=order.__getitem__)
+            if item.kind is Kind.SKILL:
+                others = users[item.resolved_path] - {report.agent}
+                item.shared_with = sorted(others, key=order.__getitem__)
 
 
 def _filtered(report: AgentReport, kinds: list[str] | None, scope: str | None) -> list[Item]:
