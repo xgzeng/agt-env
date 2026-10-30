@@ -1,0 +1,33 @@
+name: Create release
+
+# Run manually from the Actions tab on main. Creates the release v<project version>,
+# then starts the PyPI workflow. A release made with GITHUB_TOKEN doesn't trigger other
+# workflows, so pypi.yml has to be started explicitly.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # start pypi.yml
+      contents: write # create the tag and release
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v10.3.3
+
+      - name: Create release and start publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(uv version --short)"
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          gh workflow run pypi.yml --ref "$tag"
+          echo "Created $tag and started pypi.yml" >> "$GITHUB_STEP_SUMMARY"

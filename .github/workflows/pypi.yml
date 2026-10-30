@@ -1,9 +1,11 @@
 name: Publish to PyPI
 
-# Publishing a GitHub release whose tag is v<version> uploads that version to PyPI.
+# Uploads to PyPI when a release tagged v<version> is published by a person, or when
+# release.yml starts this workflow on that tag.
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,7 +22,7 @@ jobs:
 
       - name: Check the release tag matches the project version
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           version="$(uv version --short)"
           if [ "$TAG" != "v$version" ]; then
