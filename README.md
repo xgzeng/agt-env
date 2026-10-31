@@ -18,6 +18,8 @@ uvx agt-view "browser test" lint        # search all fields: (browser and test) 
 
 `agt-view` only reads files. It never changes your configuration or runs your agents.
 
+Output is plain text when piped, or with `--no-color` or `NO_COLOR`.
+
 ## Development
 
 ```sh

@@ -1,16 +1,18 @@
-"""Terminal output. Everything printed from inspected files passes through clean()."""
+"""Plain text output, and the text both outputs share. Rich output is in render_pretty.py.
+
+Everything printed from inspected files passes through clean().
+"""
 
 import re
 import unicodedata
 from pathlib import Path
 
-from agt_view.model import AgentReport, Item, Status
+from agt_view.model import AgentReport, Item, Scope
 
 _ESCAPE_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\^_][^\x1b]*(?:\x1b\\)?|.)?"
 )
-_COLUMNS = ("SCOPE/KIND", "NAME", "STATUS", "SHARED")
-_BOLD, _RED, _DIM, _RESET = "\x1b[1m", "\x1b[31m", "\x1b[2m", "\x1b[0m"
+COLUMNS = ("SCOPE/KIND", "NAME", "STATUS")
 _DETAIL_LABELS = {
     "transport": "Transport",
     "command": "Command",
@@ -29,6 +31,10 @@ def clean(text: str) -> str:
         for char in text
         if char in "\t\n\r" or unicodedata.category(char) not in ("Cc", "Cf")
     )
+
+
+def scope_letter(scope: Scope) -> str:
+    return scope[0].upper()
 
 
 def display_path(path: Path, *, home: Path, cwd: Path) -> str:
@@ -54,16 +60,7 @@ def header(report: AgentReport, *, home: Path, cwd: Path) -> str:
     return f"{'installed' if report.installed else 'not installed'}, not configured"
 
 
-def _status_text(status: Status, width: int, color: bool) -> str:
-    text = clean(status).ljust(width)
-    if color and status is Status.BROKEN:
-        return f"{_RED}{text}{_RESET}"
-    if color and status is not Status.ENABLED:
-        return f"{_DIM}{text}{_RESET}"
-    return text
-
-
-def _detail_lines(item: Item, *, home: Path, cwd: Path) -> list[str]:
+def detail_fields(item: Item, *, home: Path, cwd: Path) -> list[tuple[str, str]]:
     """Everything the columns don't show. Fields with no value are left out."""
     fields: list[tuple[str, str]] = []
     if item.native_kind != item.kind:
@@ -81,7 +78,11 @@ def _detail_lines(item: Item, *, home: Path, cwd: Path) -> list[str]:
             value = ", ".join(str(entry) for entry in value)
         if value:
             fields.append((label, clean(str(value))))
+    return fields
 
+
+def _detail_lines(item: Item, *, home: Path, cwd: Path) -> list[str]:
+    fields = detail_fields(item, home=home, cwd=cwd)
     width = max(len(label) for label, _ in fields) + 1
     return [f"{f'{label}:'.ljust(width)}  {value}" for label, value in fields]
 
@@ -92,43 +93,39 @@ def render_report(
     *,
     home: Path,
     cwd: Path,
-    color: bool,
     detail: bool = False,
 ) -> str:
     name = clean(report.agent)
     state = clean(header(report, home=home, cwd=cwd))
-    lines = [f"{_BOLD}{name}{_RESET}  {state}" if color else f"{name}  {state}"]
+    lines = [f"{name}  {state}"]
     if not items:
         lines.append("  no items")
         return "\n".join(lines)
 
     rows = [
         (
-            f"{clean(item.scope)}/{clean(item.kind)}",
+            f"{scope_letter(item.scope)}/{clean(item.kind)}",
             clean(item.name),
             clean(item.status),
-            str(len(item.shared_with)) if item.shared_with else "-",
         )
         for item in items
     ]
-    widths = [max(len(row[i]) for row in [_COLUMNS, *rows]) for i in range(len(_COLUMNS))]
+    widths = [max(len(row[i]) for row in [COLUMNS, *rows]) for i in range(len(COLUMNS))]
 
-    def format_row(row: tuple[str, ...], item: Item | None = None) -> str:
+    def format_row(row: tuple[str, ...]) -> str:
         cells = [cell.ljust(width) for cell, width in zip(row, widths)]
-        if item:
-            cells[2] = _status_text(item.status, widths[2], color)
         return ("  " + "  ".join(cells)).rstrip()
 
     # Details start at the NAME column.
     indent = " " * (2 + widths[0] + 2)
     table_width = sum(widths) + 2 * (len(widths) - 1)
     separator = f"  {'-' * table_width}"
-    lines.append(format_row(_COLUMNS))
+    lines.append(format_row(COLUMNS))
     for row, item in zip(rows, items):
         if detail:
-            lines.append(f"{_DIM}{separator}{_RESET}" if color else separator)
-        lines.append(format_row(row, item))
+            lines.append(separator)
+        lines.append(format_row(row))
         if detail:
             for line in _detail_lines(item, home=home, cwd=cwd):
-                lines.append(f"{indent}{_DIM}{line}{_RESET}" if color else f"{indent}{line}")
+                lines.append(f"{indent}{line}")
     return "\n".join(lines)

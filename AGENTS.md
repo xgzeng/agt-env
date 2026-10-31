@@ -24,7 +24,7 @@ AGT_VIEW_CLAUDE=... AGT_VIEW_CODEX=... AGT_VIEW_OPENCODE=... AGT_VIEW_PI=... AGT
 
 ## Architecture
 
-`cli.py` runs every adapter in `adapters.ADAPTERS` (registry order is display order), marks skills shared between agents by real path, and passes what `filters.py` selects to `render.py`. It hides agents that aren't both installed and configured, unless `--all` or `-a` is used.
+`cli.py` runs every adapter in `adapters.ADAPTERS` (registry order is display order), marks skills shared between agents by real path, and passes what `filters.py` selects to an output: `render_pretty.py` (Rich) on a color terminal, otherwise `render_plain.py` (plain text, whose exact form scripts can rely on). It hides agents that aren't both installed and configured, unless `--all` or `-a` is used.
 
 Each adapter returns an `AgentReport`: install and config state, plus `Item`s (`model.py`). All agent-specific rules live in that adapter. Shared helpers are in `adapters/base.py` (reading config, building items), `skills.py` (scanning, with per-agent options for depth and hidden directories), `mcp.py` (safe server summaries), `frontmatter.py`, and `jsonc.py`.
 
@@ -34,7 +34,7 @@ Adapters are independent of each other. The same directory can be scanned by sev
 
 - **Default commands only read files.** They never run agent binaries, start MCP servers, or load plugins. `shutil.which` is the only install check.
 - **Secret values must never reach an `Item`.** MCP `details` come from `mcp.py`, which keeps env and header names only, drops arguments, and strips URL credentials and queries. Plugin and package names go through `without_credentials`.
-- **Inspected text is untrusted.** Everything printed goes through `render.clean()`. Files are read with a size limit, and non-regular files aren't opened.
+- **Inspected text is untrusted.** Everything printed goes through `render_plain.clean()`, and reaches Rich only as a `Text`, because Rich parses plain strings as markup. Files are read with a size limit, and non-regular files aren't opened.
 - **Status needs evidence.** Use `unknown` rather than guessing `enabled`, and `pending` when an item waits on user approval or trust. A config file that can't be read gives a warning and `unknown`, and must not affect other agents.
 - **The current directory, or `--project`, is the project root.** Parent directories aren't searched, even for agents that search them.
 

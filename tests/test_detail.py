@@ -35,9 +35,9 @@ def test_lines_start_at_the_name_column(agents, capsys, tmp_path):
     assert (code, err) == (0, "")
     assert out.splitlines() == [
         "claude-code  ~/.claude",
-        "  SCOPE/KIND  NAME    STATUS   SHARED",
-        "  -----------------------------------",
-        "  user/skill  common  enabled  -",
+        "  SCOPE/KIND  NAME    STATUS",
+        "  ---------------------------",
+        "  U/skill     common  enabled",
         "              Description:  Does a thing",
         "              Path:         ~/.claude/skills/common (symlink)",
         f"              Real path:    {target}",
@@ -50,13 +50,13 @@ def test_a_line_separates_the_head_and_each_item(agents, capsys):
     write_skill(skills / "two", "name: two\ndescription: d")
     assert run(capsys, "-a", "claude-code")[1].splitlines() == [
         "claude-code  ~/.claude",
-        "  SCOPE/KIND  NAME  STATUS   SHARED",
-        "  ---------------------------------",
-        "  user/skill  one   enabled  -",
+        "  SCOPE/KIND  NAME  STATUS",
+        "  -------------------------",
+        "  U/skill     one   enabled",
         "              Description:  d",
         "              Path:         ~/.claude/skills/one",
-        "  ---------------------------------",
-        "  user/skill  two   enabled  -",
+        "  -------------------------",
+        "  U/skill     two   enabled",
         "              Description:  d",
         "              Path:         ~/.claude/skills/two",
     ]
@@ -124,7 +124,7 @@ def test_plugin_details(agents, capsys):
         },
     )
     _, out, _ = run(capsys, "-n", "p@m")
-    assert "user/plugin  p@m" in out
+    assert "U/plugin    p@m" in out
     assert "Version:      1.2" in out
     assert "Description:  A plugin" in out
     # The kind is the agent's own term here, so it isn't repeated.
@@ -137,7 +137,7 @@ def test_agents_own_term_is_kept_for_a_renamed_kind(machine, capsys):
     extensions.mkdir(parents=True)
     (extensions / "tool.ts").write_text("export default () => {}")
     _, out, _ = run(capsys)
-    assert "user/plugin  tool" in out
+    assert "U/plugin    tool" in out
     assert "Agent's term:  extension" in out
 
 

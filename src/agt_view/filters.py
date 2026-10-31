@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agt_view.model import AgentReport, Item
-from agt_view.render import clean, display_path, item_path
+from agt_view.render_plain import clean, display_path, item_path, scope_letter
 
 
 def select_reports(
@@ -31,6 +31,7 @@ def _search_text(item: Item, *, home: Path, cwd: Path) -> str:
         item.name,
         item.description,
         f"{item.scope}/{item.kind}",
+        f"{scope_letter(item.scope)}/{item.kind}",
         item.native_kind,
         item.agent,
         item.status,

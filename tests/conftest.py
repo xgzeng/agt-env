@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pytest
 
+SCOPE_WORDS = {"P": "project", "U": "user", "S": "system"}
+
 
 def write_skill(directory: Path, frontmatter: str = "description: does a thing") -> Path:
     directory.mkdir(parents=True, exist_ok=True)

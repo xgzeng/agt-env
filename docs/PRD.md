@@ -83,28 +83,28 @@ Agents appear in rank order (see section 6), each with a header showing its stat
 ```text
 $ agt-view
 agent-a  ~/.agent-a
-  SCOPE/KIND     NAME        STATUS    SHARED
-  project/skill  repo-skill  enabled   -
-  user/skill     my-skill    enabled   1
-  user/mcp       my-server   enabled   -
-  user/plugin    my-plugin   disabled  -
+  SCOPE/KIND  NAME        STATUS
+  P/skill     repo-skill  enabled
+  U/skill     my-skill    enabled
+  U/mcp       my-server   enabled
+  U/plugin    my-plugin   disabled
 
 agent-b  /opt/agent-b (set by AGENT_B_HOME)
-  SCOPE/KIND   NAME      STATUS   SHARED
-  user/skill   my-skill  enabled  1
-  user/plugin  other     unknown  -
+  SCOPE/KIND  NAME      STATUS
+  U/skill     my-skill  enabled
+  U/plugin    other     unknown
 
 Hidden: agent-c, agent-d. Use --all for details.
 ```
 
-The table shows how many other agents share a skill. `--detail` adds lines under each item, starting at the `NAME` column, for everything the columns don't show, and a line of dashes after the table head and between items:
+`P`, `U`, and `S` stand for the project, user, and system scopes. `--detail` adds lines under each item, starting at the `NAME` column, for everything the columns don't show, and a line of dashes after the table head and between items:
 
 ```text
 $ agt-view -a agent-b -n my-skill --detail
 agent-b  /opt/agent-b (set by AGENT_B_HOME)
-  SCOPE/KIND  NAME      STATUS   SHARED
-  -------------------------------------
-  user/skill  my-skill  enabled  1
+  SCOPE/KIND  NAME      STATUS
+  -----------------------------
+  U/skill     my-skill  enabled
               Description:  Does a thing
               Path:         /opt/agent-b/skills/my-skill (symlink)
               Real path:    /opt/shared/my-skill
@@ -137,7 +137,7 @@ agent-d  installed, not configured
 - **FR-3 (P0):** Get all results by reading files on disk. Only `probe` (FR-14) may run other programs, so all other commands must not launch agent CLIs or start MCP servers.
 - **FR-4 (P0):** Determine status from the agent's own configuration. An item in a plugin cache that is not enabled must not be reported as `enabled`.
 - **FR-5 (P0):** Follow symlinks and record both the path found and the resolved path. Report a dangling symlink as `broken`.
-- **FR-6 (P0):** Mark items that resolve to the same real path as shared, while still listing them under each agent.
+- **FR-6 (P0):** Treat items that resolve to the same real path as shared, naming the other agents under `--detail`, while still listing them under each agent.
 - **FR-7 (P1):** Flag same-named skills at different real paths with different content as drift.
 - **FR-8 (P1):** Show when a project item shadows a user item, following that agent's precedence rules.
 - **FR-9 (P1):** List skills bundled in enabled plugins, with namespaced names such as `my-plugin:my-skill`.
@@ -177,7 +177,7 @@ Every item has these fields, and adapters must fill them consistently:
 
 ### 5.6 Output and errors
 
-- **FR-16 (P0):** Use a human-readable table on a TTY. Disable color when piped, with `--no-color`, or when `NO_COLOR` is set.
+- **FR-16 (P0):** On a color terminal, show each agent in a colored panel, with a symbol and a color for each status. Use plain aligned text when piped, with `--no-color`, when `NO_COLOR` is set, when `TERM` is `dumb`, or when the output encoding isn't UTF-8. The illustrative output above is the plain form. Without `--detail`, the terminal table also shows the start of each description, cut to the space left in the terminal, and leaves the column out when too little space is left. Other long values wrap on a terminal and are never cut.
 - **FR-17 (P0):** A broken config for one agent must not stop the others. It produces a warning on stderr naming the agent and file, and items from that agent's other sources still appear.
 - **FR-18 (P0):** Exit codes: `0` for success, including partial results with warnings and empty results; `1` for a fatal runtime error; `2` for a usage error.
 - **FR-19 (P0):** Unknown fields in agent configs are ignored without error, so a new agent release doesn't break parsing.
@@ -222,7 +222,7 @@ The ranking can change without affecting the architecture.
 | Area | Requirement |
 |---|---|
 | **Performance** | `agt-view` finishes in under 200 ms on a reference fixture of 10 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
-| **Distribution** | Published to PyPI and runnable with `uvx agt-view`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical |
+| **Distribution** | Published to PyPI and runnable with `uvx agt-view`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical; Rich is used for terminal output, and plain output doesn't load it |
 | **Portability** | Linux and macOS, on any home directory layout, shell, or version manager |
 | **Extensibility** | A new adapter touches only its own module, fixtures, and one registry line |
 

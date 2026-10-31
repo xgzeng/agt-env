@@ -11,7 +11,7 @@ from agt_view.adapters import ADAPTERS
 from agt_view.adapters.base import Context
 from agt_view.filters import ItemFilter, select_reports
 from agt_view.model import AgentReport, Item, Kind, Scope
-from agt_view.render import clean, render_report
+from agt_view.render_plain import clean, render_report
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -39,7 +39,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-k", "--kind", action="append", choices=[kind.value for kind in Kind], help="(repeatable)"
     )
-    parser.add_argument("-s", "--scope", choices=[scope.value for scope in Scope])
+    parser.add_argument(
+        "-s",
+        "--scope",
+        choices=[scope.value for scope in Scope],
+        help="shown in the table as P, U, or S",
+    )
     parser.add_argument(
         "-p",
         "--project",
@@ -56,8 +61,15 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _use_color(no_color_flag: bool) -> bool:
-    return not no_color_flag and "NO_COLOR" not in os.environ and sys.stdout.isatty()
+def _use_rich(no_color_flag: bool) -> bool:
+    return (
+        not no_color_flag
+        and "NO_COLOR" not in os.environ
+        and sys.stdout.isatty()
+        and os.environ.get("TERM") != "dumb"
+        # Borders and status marks can't be encoded otherwise.
+        and sys.stdout.encoding.lower() in ("utf-8", "utf8")
+    )
 
 
 def _mark_shared(reports: list[AgentReport]) -> None:
@@ -83,7 +95,7 @@ def _in_display_order(items: list[Item]) -> list[Item]:
     )
 
 
-def _run(args: argparse.Namespace, context: Context, color: bool) -> None:
+def _run(args: argparse.Namespace, context: Context, use_rich: bool) -> None:
     reports = [adapter.scan(context) for adapter in ADAPTERS]
     shown = select_reports(reports, args.agent, args.all)
 
@@ -102,18 +114,27 @@ def _run(args: argparse.Namespace, context: Context, color: bool) -> None:
         )
         # Without a search, an empty section still shows the agent's state.
         if items or not item_filter.is_search:
-            sections.append(
-                render_report(
-                    report,
-                    items,
-                    home=context.home,
-                    cwd=context.cwd,
-                    color=color,
-                    detail=args.detail,
-                )
-            )
-    if sections:
-        print("\n\n".join(sections))
+            sections.append((report, items))
+
+    if use_rich:
+        # Imported here so that plain output doesn't pay for loading Rich.
+        from agt_view import render_pretty
+
+        console = render_pretty.make_console()
+        render_pretty.print_reports(
+            console, sections, home=context.home, cwd=context.cwd, detail=args.detail
+        )
+
+        def say(text: str) -> None:
+            render_pretty.print_message(console, text)
+    else:
+        say = print
+        if sections:
+            rendered = [
+                render_report(report, items, home=context.home, cwd=context.cwd, detail=args.detail)
+                for report, items in sections
+            ]
+            print("\n\n".join(rendered))
 
     hidden = (
         []
@@ -122,15 +143,16 @@ def _run(args: argparse.Namespace, context: Context, color: bool) -> None:
     )
     if not shown and not hidden:
         supported = ", ".join(adapter.id for adapter in ADAPTERS)
-        print(f"No supported agents detected. Supported agents: {supported}.")
+        say(f"No supported agents detected. Supported agents: {supported}.")
     elif not shown:
-        print("No agents are both installed and configured.")
+        say("No agents are both installed and configured.")
     elif not sections:
-        print("No items match.")
+        say("No items match.")
     if hidden:
-        if sections:
+        # A panel's border already sets it apart.
+        if sections and not use_rich:
             print()
-        print(f"Hidden: {', '.join(hidden)}. Use --all for details.")
+        say(f"Hidden: {', '.join(hidden)}. Use --all for details.")
 
     for report in shown:
         for warning in report.warnings:
@@ -148,7 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     context = Context(home=Path.home(), cwd=cwd, env=os.environ)
 
     try:
-        _run(args, context, _use_color(args.no_color))
+        _run(args, context, _use_rich(args.no_color))
     except BrokenPipeError:
         # The reader closed the pipe, as with `| head`; stop quietly.
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())

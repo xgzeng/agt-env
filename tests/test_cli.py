@@ -3,7 +3,7 @@ import os
 import re
 
 import pytest
-from conftest import write_skill
+from conftest import SCOPE_WORDS, write_skill
 
 from agt_view.cli import main
 
@@ -15,15 +15,15 @@ def run(capsys, *args):
 
 
 def rows(out):
-    """Parse item rows into (agent, kind, name, scope, status, shared)."""
+    """Parse item rows into (agent, kind, name, scope, status)."""
     result, agent = [], None
     for line in out.splitlines():
         if line and not line.startswith(" "):
             agent = line.split()[0]
         elif line.strip() and not line.strip().startswith(("SCOPE/KIND", "no items")):
             first, *others = re.split(r"\s{2,}", line.strip())
-            scope, _, kind = first.partition("/")
-            result.append((agent, kind, others[0], scope, *others[1:]))
+            letter, _, kind = first.partition("/")
+            result.append((agent, kind, others[0], SCOPE_WORDS[letter], *others[1:]))
     return result
 
 
@@ -256,12 +256,10 @@ def test_shared_skills_marked_under_each_agent(machine, capsys, tmp_path):
     (codex(machine) / "skills").mkdir()
     (machine.home / ".codex" / "skills" / "common").symlink_to(target)
     write_skill(machine.home / ".codex" / "skills" / "solo")
-    found = {(r[0], r[2]): r[5] for r in rows(run(capsys)[1])}
-    assert found == {
-        ("claude-code", "common"): "1",
-        ("codex", "common"): "1",
-        ("codex", "solo"): "-",
-    }
+    out = run(capsys, "--detail")[1]
+    assert out.count("Shared with:") == 2  # Not on solo.
+    assert "Shared with:  codex" in out and "Shared with:  claude-code" in out
+    assert "SHARED" not in run(capsys)[1]
 
 
 def test_skill_linked_twice_within_an_agent_listed_once(machine, capsys, tmp_path):
@@ -287,7 +285,7 @@ def test_inactive_agent_not_listed_as_sharing(machine, capsys, tmp_path):
     (machine.home / ".claude" / "skills" / "common").symlink_to(target)
     (machine.home / ".codex" / "skills").mkdir(parents=True)  # not installed
     (machine.home / ".codex" / "skills" / "common").symlink_to(target)
-    assert rows(run(capsys)[1])[0][5] == "-"
+    assert "Shared with" not in run(capsys, "--detail")[1]
 
 
 def test_dangling_symlink_is_broken(machine, capsys, tmp_path):

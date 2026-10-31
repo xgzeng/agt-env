@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from conftest import write_skill
+from conftest import SCOPE_WORDS, write_skill
 
 from agt_view.adapters.base import Context
 from agt_view.adapters.opencode import OpenCode
@@ -24,7 +24,7 @@ def statuses(capsys, *args):
         parts = line.split()
         scope, _, kind = parts[0].partition("/") if parts else ("", "", "")
         if line.startswith("  ") and kind in ("skill", "mcp", "plugin"):
-            found[(kind, parts[1], scope)] = parts[2]
+            found[(kind, parts[1], SCOPE_WORDS[scope])] = parts[2]
     return found
 
 
@@ -463,7 +463,7 @@ def test_opencode_corrupt_config_makes_status_unknown(opencode, capsys):
     (opencode.config / "opencode.json").write_text("{ not json")
     assert main([]) == 0
     captured = capsys.readouterr()
-    assert " unknown " in captured.out
+    assert " unknown" in captured.out
     assert "warning: opencode: cannot read" in captured.err
 
 
@@ -540,7 +540,7 @@ def test_pi_corrupt_trust_store_warns(pi, capsys):
     write_json(pi.project / ".pi" / "mcp.json", {"mcpServers": {"s": {"command": "x"}}})
     assert main([]) == 0
     captured = capsys.readouterr()
-    assert " unknown " in captured.out and "trust.json" in captured.err
+    assert " unknown" in captured.out and "trust.json" in captured.err
 
 
 def test_pi_project_entry_can_override_user_enabled(pi, capsys):
@@ -681,7 +681,7 @@ def test_pi_corrupt_settings_warn(pi, capsys):
     (pi.agent / "settings.json").write_text("{ not json")
     assert main([]) == 0
     captured = capsys.readouterr()
-    assert " unknown " in captured.out and "warning: pi: cannot read" in captured.err
+    assert " unknown" in captured.out and "warning: pi: cannot read" in captured.err
 
 
 def test_antigravity_skill_locations(agy, capsys):
@@ -792,7 +792,7 @@ def test_antigravity_corrupt_plugin_state_warns(agy, capsys):
     (agy.shared / "config.json").write_text("{ not json")
     assert main([]) == 0
     captured = capsys.readouterr()
-    assert " unknown " in captured.out and "config.json" in captured.err
+    assert " unknown" in captured.out and "config.json" in captured.err
 
 
 def test_skill_shared_between_new_and_old_agents(machine, capsys, tmp_path):
@@ -801,22 +801,25 @@ def test_skill_shared_between_new_and_old_agents(machine, capsys, tmp_path):
     (machine.home / ".config" / "opencode").mkdir(parents=True)
     write_skill(machine.home / ".claude" / "skills" / "common", named("common"))
     write_skill(machine.home / ".agents" / "skills" / "both", named("both"))
-    assert main([]) == 0
+    assert main(["--detail"]) == 0
     out = capsys.readouterr().out
     # OpenCode reads Claude Code's directory and shares ~/.agents/skills with Pi.
-    assert next(line for line in out.splitlines() if " common " in line).endswith(" 1")
-    assert next(line for line in out.splitlines() if " both " in line).endswith(" 1")
+    assert out.count("Shared with:  opencode") == 2
+    assert out.count("Shared with:  claude-code") == 1
+    assert out.count("Shared with:  pi") == 1
 
 
-def test_shared_column_counts_the_other_agents(machine, capsys):
+def test_detail_names_all_the_other_agents(machine, capsys):
     machine.install("codex", "opencode", "pi")
     (machine.home / ".codex").mkdir()
     (machine.home / ".pi" / "agent").mkdir(parents=True)
     (machine.home / ".config" / "opencode").mkdir(parents=True)
     write_skill(machine.home / ".agents" / "skills" / "both", named("both"))
-    assert main([]) == 0
-    lines = [line for line in capsys.readouterr().out.splitlines() if " both " in line]
-    assert len(lines) == 3 and all(line.endswith(" 2") for line in lines)
+    assert main(["--detail"]) == 0
+    out = capsys.readouterr().out
+    assert "Shared with:  opencode, pi" in out
+    assert "Shared with:  codex, pi" in out
+    assert "Shared with:  codex, opencode" in out
 
 
 def test_override_note_only_when_the_override_is_what_was_found(

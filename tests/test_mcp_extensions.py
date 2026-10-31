@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from conftest import SCOPE_WORDS
 
 from agt_view.adapters.base import Context
 from agt_view.adapters.claude_code import ClaudeCode
@@ -20,7 +21,7 @@ def statuses(capsys, *args):
         parts = line.split()
         scope, _, kind = parts[0].partition("/") if parts else ("", "", "")
         if line.startswith("  ") and kind in ("skill", "mcp", "plugin"):
-            found[(kind, parts[1], scope)] = parts[2]
+            found[(kind, parts[1], SCOPE_WORDS[scope])] = parts[2]
     return found
 
 
@@ -330,9 +331,8 @@ def test_kind_filter_and_order(claude, capsys):
 
 def test_servers_with_one_config_file_are_not_marked_shared(claude, capsys):
     write_state(claude, mcpServers={"one": STDIO, "two": STDIO})
-    main([])
-    out = capsys.readouterr().out
-    assert "claude-code" not in out.split("\n", 1)[1]
+    main(["--detail"])
+    assert "Shared with" not in capsys.readouterr().out
 
 
 def test_mcp_path_detail_shows_config_file(claude, capsys):

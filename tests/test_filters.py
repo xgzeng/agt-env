@@ -71,7 +71,8 @@ def test_empty_keyword_is_ignored(agents, capsys):
         ("mcp", ["srv"]),  # kind
         ("mcp server", ["srv"]),  # the agent's own term, as two words
         ("project", ["tests"]),  # scope
-        ("project/skill", ["tests"]),  # the first column as printed
+        ("P/skill", ["tests"]),  # the first column as printed
+        ("project/skill", ["tests"]),  # and with the whole word
         ("api_key", ["srv"]),  # env name
         ("/bin/tool", ["srv"]),  # command
         ("stdio", ["srv"]),  # transport
