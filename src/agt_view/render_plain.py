@@ -25,6 +25,8 @@ _DETAIL_LABELS = {
 
 def clean(text: str) -> str:
     """Remove terminal escape sequences and characters that could spoof the display."""
+    if text.isascii() and text.isprintable():
+        return text  # Nothing to remove, and checking each character is slow.
     text = _ESCAPE_SEQUENCE.sub("", text)
     return "".join(
         " " if char in "\t\n\r" else "?" if unicodedata.category(char) == "Cs" else char

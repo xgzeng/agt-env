@@ -15,6 +15,12 @@ def write_skill(directory: Path, frontmatter: str = "description: does a thing")
     return directory
 
 
+def _managed_path(mac_name: str, linux_name: str) -> str:
+    if sys.platform == "darwin":
+        return f"Library/Application Support/{mac_name}"
+    return f"etc/{linux_name}"
+
+
 def _spawn_env(machine, extra):
     env = {"HOME": str(machine.home), "PATH": str(machine.bin), "TERM": "xterm", **extra}
     if "PYTHONPATH" in os.environ:
@@ -71,6 +77,14 @@ def machine(tmp_path, monkeypatch):
         project = tmp_path / "project"
         bin = tmp_path / "bin"
         system = tmp_path / "system"
+
+        @property
+        def claude_managed(self) -> Path:
+            return self.system / _managed_path("ClaudeCode", "claude-code")
+
+        @property
+        def opencode_managed(self) -> Path:
+            return self.system / _managed_path("opencode", "opencode")
 
         def install(self, *binaries: str) -> None:
             for binary in binaries:

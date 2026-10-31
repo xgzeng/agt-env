@@ -51,11 +51,26 @@ def _cells(item: Item) -> tuple[Text, Text, Text]:
     )
 
 
-def _rows(rows: Iterable[Iterable[Text]], widths: list[int]) -> Table:
-    """Lines of the table. Rich has no column spans, so tables line up through fixed widths."""
+def _line(cells: Iterable[Text], widths: list[int]) -> Text:
+    line = Text(no_wrap=True)
+    for cell, width in zip(cells, widths):
+        cell.truncate(width, overflow="ellipsis")  # Only a description can be too long.
+        line.append_text(cell)
+        line.append(" " * (width - cell.cell_len + _COLUMN_GAP))
+    return line
+
+
+def _rows(
+    rows: list[tuple[Text, ...]] | list[list[Text]], widths: list[int], width: int
+) -> RenderableType:
+    """Lines of the table. Rich has no column spans, so these line up through fixed widths."""
+    used = sum(widths) + _COLUMN_GAP * (len(widths) - 1) + _PANEL_MARGIN
+    if used <= width and all(row[1].cell_len <= widths[1] for row in rows):
+        # Rich's table layout is most of the time taken, and only folding needs it.
+        return Text("\n", no_wrap=True).join(_line(row, widths) for row in rows)
     table = Table.grid(padding=(0, _COLUMN_GAP, 0, 0))
-    for width in widths:
-        table.add_column(width=width, overflow="fold")
+    for column_width in widths:
+        table.add_column(width=column_width, overflow="fold")
     for cells in rows:
         table.add_row(*cells)
     return table
@@ -95,16 +110,16 @@ def _items(
             rows = [(*row, text) for row, text in zip(rows, cut)]
 
     separator = Rule(style="dim")
-    lines: list[RenderableType] = [_rows([heads], widths)]
+    lines: list[RenderableType] = [_rows([heads], widths, width)]
     if not detail:
-        return [*lines, separator, _rows(rows, widths)]
+        return [*lines, separator, _rows(rows, widths, width)]
     # Details start at the NAME column.
     indent = widths[0] + _COLUMN_GAP
     for row, item in zip(rows, items):
         lines.extend(
             [
                 separator,
-                _rows([row], widths),
+                _rows([row], widths, width),
                 _details(item, home=home, cwd=cwd, indent=indent),
             ]
         )

@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 from conftest import SCOPE_WORDS
@@ -131,7 +132,7 @@ def test_claude_rejection_wins_in_any_settings_file(claude, capsys):
 
 
 def test_claude_managed_file_takes_exclusive_control(claude, capsys):
-    managed = claude.system / "etc" / "claude-code" / "managed-mcp.json"
+    managed = claude.claude_managed / "managed-mcp.json"
     write_settings(managed, mcpServers={"company": STDIO})
     write_state(claude, mcpServers={"personal": STDIO})
     assert statuses(capsys) == {
@@ -152,7 +153,7 @@ def test_claude_managed_file_takes_exclusive_control(claude, capsys):
     ],
 )
 def test_claude_policy_lists(claude, capsys, policy, expected):
-    write_settings(claude.system / "etc" / "claude-code" / "managed-settings.json", **policy)
+    write_settings(claude.claude_managed / "managed-settings.json", **policy)
     write_state(claude, mcpServers={"s": STDIO})
     assert statuses(capsys)[("mcp", "s", "user")] == expected
 
@@ -168,7 +169,7 @@ def test_claude_url_policy_wildcard(claude, capsys):
 
 def test_claude_managed_only_allowlist_ignores_user_allowlist(claude, capsys):
     write_settings(
-        claude.system / "etc" / "claude-code" / "managed-settings.json",
+        claude.claude_managed / "managed-settings.json",
         allowManagedMcpServersOnly=True,
         allowedMcpServers=[],
     )
@@ -469,3 +470,15 @@ def test_hostile_server_name_cannot_control_the_terminal(claude, capsys):
 )
 def test_safe_url(url, expected):
     assert safe_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("platform", "directory"),
+    [("linux", "etc/claude-code"), ("darwin", "Library/Application Support/ClaudeCode")],
+)
+def test_claude_managed_location_depends_on_the_platform(
+    claude, capsys, monkeypatch, platform, directory
+):
+    monkeypatch.setattr(sys, "platform", platform)
+    write_settings(claude.system / directory / "managed-mcp.json", mcpServers={"company": STDIO})
+    assert statuses(capsys) == {("mcp", "company", "system"): "enabled"}

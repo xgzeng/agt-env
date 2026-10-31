@@ -1,6 +1,7 @@
 """OpenCode, Pi, and Antigravity CLI. Behavior here was checked against the real agents."""
 
 import json
+import sys
 
 import pytest
 from conftest import SCOPE_WORDS, write_skill
@@ -278,10 +279,23 @@ def test_opencode_managed_config_wins(opencode, capsys):
     server = {"type": "local", "command": ["x"]}
     write_json(opencode.config / "opencode.json", {"mcp": {"s": server}})
     write_json(
-        opencode.system / "etc" / "opencode" / "opencode.json",
+        opencode.opencode_managed / "opencode.json",
         {"mcp": {"s": {**server, "enabled": False}}},
     )
     assert statuses(capsys) == {("mcp", "s", "system"): "disabled"}
+
+
+@pytest.mark.parametrize(
+    ("platform", "directory"),
+    [("linux", "etc/opencode"), ("darwin", "Library/Application Support/opencode")],
+)
+def test_opencode_managed_location_depends_on_the_platform(
+    opencode, capsys, monkeypatch, platform, directory
+):
+    monkeypatch.setattr(sys, "platform", platform)
+    server = {"type": "local", "command": ["x"]}
+    write_json(opencode.system / directory / "opencode.json", {"mcp": {"s": server}})
+    assert statuses(capsys) == {("mcp", "s", "system"): "enabled"}
 
 
 def test_opencode_project_config_can_be_ignored(opencode, capsys, monkeypatch):
