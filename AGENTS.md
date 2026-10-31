@@ -36,7 +36,7 @@ Adapters are independent of each other. The same directory can be scanned by sev
 - **Secret values must never reach an `Item`.** MCP `details` come from `mcp.py`, which keeps env and header names only, drops arguments, and strips URL credentials and queries. Plugin and package names go through `without_credentials`.
 - **Inspected text is untrusted.** Everything printed goes through `render.clean()`. Files are read with a size limit, and non-regular files aren't opened.
 - **Status needs evidence.** Use `unknown` rather than guessing `enabled`, and `pending` when an item waits on user approval or trust. A config file that can't be read gives a warning and `unknown`, and must not affect other agents.
-- **The current directory is the project root.** Parent directories aren't searched, even for agents that search them.
+- **The current directory, or `--project`, is the project root.** Parent directories aren't searched, even for agents that search them.
 
 ## Changing agent rules
 

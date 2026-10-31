@@ -3,7 +3,7 @@
 import argparse
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Container, Sequence
 from pathlib import Path
 
 from agt_view import __version__
@@ -12,11 +12,20 @@ from agt_view.adapters.base import Context
 from agt_view.model import AgentReport, Item, Kind, Scope
 from agt_view.render import clean, render_item, render_report
 
-_COMMANDS = {"list", "show"}
 _TOP_LEVEL_FLAGS = {"-h", "--help", "--version"}
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _agent_id(value: str) -> str:
+    """Stands in for `choices`, which rejects an empty list of agents on Python 3.11."""
+    ids = [adapter.id for adapter in ADAPTERS]
+    if value not in ids:
+        raise argparse.ArgumentTypeError(
+            f"unknown agent {clean(value)!r} (choose from {', '.join(ids)})"
+        )
+    return value
+
+
+def _build_parsers() -> tuple[argparse.ArgumentParser, dict[str, argparse.ArgumentParser]]:
     parser = argparse.ArgumentParser(
         prog="agt-view",
         description="List what each coding agent can use from this directory. "
@@ -27,17 +36,21 @@ def _build_parser() -> argparse.ArgumentParser:
 
     filters = argparse.ArgumentParser(add_help=False)
     filters.add_argument(
-        "--agent",
-        action="append",
-        choices=[adapter.id for adapter in ADAPTERS],
-        help="only this agent (repeatable)",
+        "agents",
+        nargs="*",
+        metavar="agent",
+        type=_agent_id,
+        help=f"only these agents: {', '.join(adapter.id for adapter in ADAPTERS)}",
     )
     filters.add_argument(
-        "--kind", action="append", choices=[kind.value for kind in Kind], help="(repeatable)"
+        "-k", "--kind", action="append", choices=[kind.value for kind in Kind], help="(repeatable)"
     )
-    filters.add_argument("--scope", choices=[scope.value for scope in Scope])
+    filters.add_argument("-s", "--scope", choices=[scope.value for scope in Scope])
     filters.add_argument(
-        "--cwd", type=Path, help="project root to inspect (default: current directory)"
+        "-p",
+        "--project",
+        type=Path,
+        help="project directory to inspect (default: current directory)",
     )
     filters.add_argument("--no-color", action="store_true")
 
@@ -45,16 +58,20 @@ def _build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument(
         "--all", action="store_true", help="also show agents not both installed and configured"
     )
+    # A parent, because the name has to come before the agents.
+    show_filters = argparse.ArgumentParser(add_help=False)
+    show_filters.add_argument("name", help="item name; a plugin can omit its @marketplace")
     show_parser = commands.add_parser(
-        "show", parents=[filters], help="show all details of an item, across every agent"
+        "show",
+        parents=[show_filters, filters],
+        help="show all details of an item, across every agent",
     )
-    show_parser.add_argument("name", help="item name; a plugin can omit its @marketplace")
-    return parser
+    return parser, {"list": list_parser, "show": show_parser}
 
 
-def _with_default_command(argv: Sequence[str]) -> list[str]:
+def _with_default_command(argv: Sequence[str], commands: Container[str]) -> list[str]:
     arguments = list(argv)
-    if arguments and (arguments[0] in _COMMANDS or arguments[0] in _TOP_LEVEL_FLAGS):
+    if arguments and (arguments[0] in commands or arguments[0] in _TOP_LEVEL_FLAGS):
         return arguments
     return ["list", *arguments]
 
@@ -90,8 +107,8 @@ def _filtered(report: AgentReport, kinds: list[str] | None, scope: str | None) -
 
 def run_list(args: argparse.Namespace, context: Context, color: bool) -> None:
     reports = [adapter.scan(context) for adapter in ADAPTERS]
-    if args.agent:
-        shown = [report for report in reports if report.agent in args.agent]
+    if args.agents:
+        shown = [report for report in reports if report.agent in args.agents]
     elif args.all:
         shown = [report for report in reports if report.installed or report.configured]
     else:
@@ -114,7 +131,7 @@ def run_list(args: argparse.Namespace, context: Context, color: bool) -> None:
 
     hidden = (
         []
-        if args.agent or args.all
+        if args.agents or args.all
         else [r.agent for r in reports if (r.installed or r.configured) and not r.active]
     )
     if not shown and not hidden:
@@ -146,7 +163,7 @@ def run_show(args: argparse.Namespace, context: Context, color: bool) -> int:
     searched = [
         report
         for report in reports
-        if (report.agent in args.agent if args.agent else report.installed or report.configured)
+        if (report.agent in args.agents if args.agents else report.installed or report.configured)
     ]
     matches = [
         (report, [i for i in _filtered(report, args.kind, args.scope) if _matches(i, args.name)])
@@ -174,17 +191,24 @@ def run_show(args: argparse.Namespace, context: Context, color: bool) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(_with_default_command(sys.argv[1:] if argv is None else argv))
+    top_parser, parsers = _build_parsers()
+    arguments = _with_default_command(sys.argv[1:] if argv is None else argv, parsers)
+    if arguments[0] in _TOP_LEVEL_FLAGS:
+        top_parser.parse_args(arguments)  # Prints the help or version, and exits.
 
-    cwd = (args.cwd or Path.cwd()).resolve()
+    # Intermixed parsing, unavailable through subparsers, allows `show name --kind mcp codex`.
+    command, *rest = arguments
+    parser = parsers[command]
+    args = parser.parse_intermixed_args(rest)
+
+    cwd = (args.project or Path.cwd()).resolve()
     if not cwd.is_dir():
-        parser.error(f"--cwd is not a directory: {clean(str(args.cwd))}")
+        parser.error(f"--project is not a directory: {clean(str(args.project))}")
     context = Context(home=Path.home(), cwd=cwd, env=os.environ)
 
     color = _use_color(args.no_color)
     try:
-        if args.command == "show":
+        if command == "show":
             return run_show(args, context, color)
         run_list(args, context, color)
     except BrokenPipeError:

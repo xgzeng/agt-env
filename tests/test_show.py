@@ -128,7 +128,7 @@ def test_partial_name_does_not_match(agents, capsys):
 def test_finds_item_of_hidden_agent_and_shows_its_state(machine, capsys):
     write_skill(machine.home / ".agents" / "skills" / "kept", "name: kept\ndescription: d")
     (machine.home / ".codex").mkdir()  # configured, not installed
-    code, out, _ = run(capsys, "kept", "--agent", "codex")
+    code, out, _ = run(capsys, "kept", "codex")
     assert code == 0
     assert "Agent:        not installed, configured at ~/.codex" in out
 
@@ -139,7 +139,7 @@ def test_undetected_agents_are_not_searched(machine, capsys):
     write_skill(machine.home / ".claude" / "skills" / "one", "name: one\ndescription: d")
     _, out, _ = run(capsys, "one")
     assert "claude-code" in out and "opencode" not in out
-    _, out, _ = run(capsys, "one", "--agent", "opencode")
+    _, out, _ = run(capsys, "one", "opencode")
     assert "Agent:        not installed, not configured" in out
 
 
@@ -147,21 +147,28 @@ def test_filters(agents, capsys):
     write_skill(agents.home / ".claude" / "skills" / "same", "name: same\ndescription: d")
     write_skill(agents.project / ".claude" / "skills" / "same", "name: same\ndescription: d")
     write_skill(agents.home / ".codex" / "skills" / "same", "name: same\ndescription: d")
-    assert run(capsys, "same", "--agent", "codex")[1].count("(skill,") == 1
+    assert run(capsys, "same", "codex")[1].count("(skill,") == 1
     assert run(capsys, "same", "--scope", "project")[1].count("(skill,") == 1
     assert run(capsys, "same", "--kind", "mcp")[0] == 1
     assert run(capsys, "same")[1].count("(skill,") == 3
 
 
-def test_cwd_flag(agents, capsys, tmp_path):
+def test_project_flag(agents, capsys, tmp_path):
     write_skill(tmp_path / "other" / ".claude" / "skills" / "there", "name: there\ndescription: d")
     assert run(capsys, "there")[0] == 1
-    assert run(capsys, "there", "--cwd", str(tmp_path / "other"))[0] == 0
+    assert run(capsys, "there", "--project", str(tmp_path / "other"))[0] == 0
 
 
 def test_flags_can_come_first(agents, capsys):
     write_skill(agents.home / ".claude" / "skills" / "one", "name: one\ndescription: d")
-    assert run(capsys, "--agent", "claude-code", "one")[0] == 0
+    assert run(capsys, "--scope", "user", "one", "claude-code")[0] == 0
+    assert run(capsys, "one", "--scope", "user", "claude-code")[0] == 0
+
+
+def test_unknown_agent_is_a_usage_error(agents, capsys):
+    with pytest.raises(SystemExit) as error:
+        run(capsys, "one", "nope")
+    assert error.value.code == 2
 
 
 def test_name_is_required(agents):

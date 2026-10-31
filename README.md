@@ -11,7 +11,7 @@ Run it from your project root to include project-level configuration. No install
 ```sh
 uvx agt-view                            # list everything for active agents
 uvx agt-view --all                      # also show agents not both installed and configured
-uvx agt-view --agent codex --kind mcp   # filter by agent and kind
+uvx agt-view codex --kind mcp           # filter by agent and kind
 uvx agt-view show my-skill              # all details of an item, across every agent
 ```
 

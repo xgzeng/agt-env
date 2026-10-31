@@ -149,7 +149,7 @@ def test_installed_not_configured_state(machine, capsys):
 
 
 def test_named_agent_shown_even_when_undetected(machine, capsys):
-    _, out, _ = run(capsys, "--agent", "codex")
+    _, out, _ = run(capsys, "codex")
     assert "codex  not installed, not configured" in out
 
 
@@ -164,20 +164,44 @@ def test_filters(machine, capsys):
     write_skill(claude(machine) / "skills" / "personal")
     write_skill(machine.project / ".claude" / "skills" / "repo")
     write_skill(codex(machine) / "skills" / "other")
-    _, out, _ = run(capsys, "--scope", "project", "--agent", "claude-code")
+    _, out, _ = run(capsys, "--scope", "project", "claude-code")
     assert [r[2] for r in rows(out)] == ["repo"]
     assert "codex" not in out
 
 
-def test_cwd_flag_selects_project(machine, capsys, tmp_path):
+def test_agents_can_be_named_around_flags(machine, capsys):
+    write_skill(claude(machine) / "skills" / "personal")
+    write_skill(codex(machine) / "skills" / "other")
+    for args in (
+        ("claude-code", "--kind", "skill"),
+        ("--kind", "skill", "claude-code"),
+        ("list", "--kind", "skill", "claude-code"),
+    ):
+        _, out, _ = run(capsys, *args)
+        assert "personal" in out and "codex" not in out
+    _, out, _ = run(capsys, "codex", "--kind", "skill", "claude-code")
+    assert "personal" in out and "other" in out
+
+
+def test_short_flags(machine, capsys, tmp_path):
+    write_skill(claude(machine) / "skills" / "personal")
+    other = tmp_path / "other"
+    write_skill(other / ".claude" / "skills" / "there")
+    _, out, _ = run(capsys, "-k", "skill", "-s", "project", "-p", str(other))
+    assert [r[2] for r in rows(out)] == ["there"]
+    _, out, _ = run(capsys, "-k", "mcp", "-p", str(other))
+    assert "there" not in out
+
+
+def test_project_flag_selects_project(machine, capsys, tmp_path):
     claude(machine).mkdir()
     other = tmp_path / "other"
     write_skill(other / ".claude" / "skills" / "there")
-    assert "there" in run(capsys, "--cwd", str(other))[1]
+    assert "there" in run(capsys, "--project", str(other))[1]
 
 
 def test_usage_errors_exit_two(machine, capsys):
-    for args in (["--agent", "nope"], ["--cwd", "/does/not/exist"], ["--bogus"]):
+    for args in (["nope"], ["--project", "/does/not/exist"], ["--bogus"]):
         with pytest.raises(SystemExit) as error:
             main(args)
         assert error.value.code == 2

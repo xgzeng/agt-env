@@ -950,23 +950,7 @@ def test_hostile_names_are_cleaned_for_every_new_agent(machine, capsys):
 
 
 def test_every_agent_is_listed_in_rank_order(machine, capsys):
-    assert (
-        main(
-            [
-                "--agent",
-                "antigravity",
-                "--agent",
-                "pi",
-                "--agent",
-                "opencode",
-                "--agent",
-                "codex",
-                "--agent",
-                "claude-code",
-            ]
-        )
-        == 0
-    )
+    assert main(["antigravity", "pi", "opencode", "codex", "claude-code"]) == 0
     headers = [
         line.split()[0]
         for line in capsys.readouterr().out.splitlines()

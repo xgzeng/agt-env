@@ -51,7 +51,7 @@ Anyone running several coding agents has capabilities scattered across incompati
 ### Core scenarios
 
 1. "What do I have across all my agents?" → `agt-view`
-2. "Which MCP servers can Codex use here?" → `agt-view list --agent codex --kind mcp`
+2. "Which MCP servers can Codex use here?" → `agt-view codex --kind mcp`
 3. "Where does this skill come from, and who else has it?" → `agt-view show my-skill`
 4. "What does this repo add to my agents?" → `agt-view list --scope project`
 
@@ -63,14 +63,14 @@ Priorities: **P0** is required for v1, **P1** follows soon after, and **P2** is 
 
 | Command | Purpose | Priority |
 |---|---|---|
-| `agt-view list` | Agents and their items, filterable. This is the default command | P0 |
-| `agt-view show <name>` | All details for matching items across agents | P0 |
+| `agt-view list [agent...]` | Agents and their items, filterable. This is the default command | P0 |
+| `agt-view show <name> [agent...]` | All details for matching items across agents | P0 |
 | `agt-view doctor` | Broken symlinks, parse failures, drifted copies, shadowing | P1 |
 | `agt-view probe` | Opt-in live checks through agent CLIs (see 5.5) | P2 |
 
-`agt-view` with no subcommand is the same as `agt-view list` and takes the same flags. Agents appear in rank order (see section 6), each with a header showing its state and config location, followed by its items sorted by kind, then name.
+`agt-view` with no subcommand is the same as `agt-view list` and takes the same arguments, so `agt-view codex` lists only Codex. Agents appear in rank order (see section 6), each with a header showing its state and config location, followed by its items sorted by kind, then name.
 
-**Flags:** `--all`, `--agent <id>` (repeatable), `--kind <kind>` (repeatable), `--scope user|project|system`, `--cwd <path>`, `--no-color`.
+**Flags:** `--all`, `-k`/`--kind <kind>` (repeatable), `-s`/`--scope user|project|system`, `-p`/`--project <path>`, `--no-color`.
 
 **Illustrative output:**
 
@@ -115,7 +115,7 @@ agent-d  installed, not configured
 ### 5.3 Discovery
 
 - **FR-1 (P0):** Detect each agent independently through its binary on `PATH` and its config locations, and report the two separately. An agent is configured if it has config at user or project scope. A version-manager shim on `PATH` counts as a binary, but detection must not execute it.
-- **FR-2 (P0):** Discover items at user and project scope. The current directory, or `--cwd` if given, is assumed to be the project root. Parent directories are not searched, so running from a subdirectory doesn't find the project's items. System-level locations are read where the agent defines them.
+- **FR-2 (P0):** Discover items at user and project scope. The current directory, or `--project` if given, is assumed to be the project root. Parent directories are not searched, so running from a subdirectory doesn't find the project's items. System-level locations are read where the agent defines them.
 - **FR-3 (P0):** Get all results by reading files on disk. Only `probe` (FR-14) may run other programs, so all other commands must not launch agent CLIs or start MCP servers.
 - **FR-4 (P0):** Determine status from the agent's own configuration. An item in a plugin cache that is not enabled must not be reported as `enabled`.
 - **FR-5 (P0):** Follow symlinks and record both the path found and the resolved path. Report a dangling symlink as `broken`.
@@ -126,7 +126,7 @@ agent-d  installed, not configured
 - **FR-10 (P0):** Only treat a directory as a skill if it meets the agent's definition. A directory that only groups other skills must be descended into or skipped, not counted.
 - **FR-20 (P0):** Resolve locations from the environment, not fixed paths: honor `HOME`, XDG variables, and each agent's documented config-directory overrides. When an override moves an agent's location away from its default, `list` shows the location in use and the variable that set it in the agent's header.
 - **FR-21 (P0):** Work from any starting state. With no agents detected, or an agent's directories missing or unreadable, the tool still succeeds and says what it found. A missing location isn't a warning; an unreadable one is.
-- **FR-22 (P0):** By default, `list` shows only agents that are both installed and configured, and names the agents it hid. `--all` shows every detected agent, and `--agent <id>` always shows the named agent, in each case with its state.
+- **FR-22 (P0):** By default, `list` shows only agents that are both installed and configured, and names the agents it hid. `--all` shows every detected agent, and naming an agent always shows it, in each case with its state.
 
 ### 5.4 Data model
 
