@@ -111,15 +111,16 @@ def render_report(
         for item in items
     ]
     widths = [max(len(row[i]) for row in [COLUMNS, *rows]) for i in range(len(COLUMNS))]
+    margin = "" if detail else "  "
 
     def format_row(row: tuple[str, ...]) -> str:
         cells = [cell.ljust(width) for cell, width in zip(row, widths)]
-        return ("  " + "  ".join(cells)).rstrip()
+        return (margin + "  ".join(cells)).rstrip()
 
     # Details start at the NAME column.
-    indent = " " * (2 + widths[0] + 2)
+    indent = " " * (widths[0] + 2)
     table_width = sum(widths) + 2 * (len(widths) - 1)
-    separator = f"  {'-' * table_width}"
+    separator = "-" * table_width
     lines.append(format_row(COLUMNS))
     for row, item in zip(rows, items):
         if detail:

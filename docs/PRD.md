@@ -102,13 +102,13 @@ Hidden: agent-c, agent-d. Use --all for details.
 ```text
 $ agt-view -a agent-b -n my-skill --detail
 agent-b  /opt/agent-b (set by AGENT_B_HOME)
-  SCOPE/KIND  NAME      STATUS
-  -----------------------------
-  U/skill     my-skill  enabled
-              Description:  Does a thing
-              Path:         /opt/agent-b/skills/my-skill (symlink)
-              Real path:    /opt/shared/my-skill
-              Shared with:  agent-a
+SCOPE/KIND  NAME      STATUS
+-----------------------------
+U/skill     my-skill  enabled
+            Description:  Does a thing
+            Path:         /opt/agent-b/skills/my-skill (symlink)
+            Real path:    /opt/shared/my-skill
+            Shared with:  agent-a
 ```
 
 With `--all`, hidden agents are added with their state:

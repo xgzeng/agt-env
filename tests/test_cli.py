@@ -83,10 +83,8 @@ def details(out):
         match = re.fullmatch(r"\s+([A-Z][A-Za-z' ]*):\s+(.*)", line)
         if match:
             current[match[1]] = match[2]
-        elif line.startswith("  ") and not line.strip().startswith(
-            ("SCOPE/KIND", "no items", "---")
-        ):
-            current = result.setdefault(re.split(r"\s{2,}", line.strip())[1], {})
+        elif re.match(r"[PUS]/", line):
+            current = result.setdefault(re.split(r"\s{2,}", line)[1], {})
     return result
 
 
