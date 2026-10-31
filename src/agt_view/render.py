@@ -92,7 +92,7 @@ def render_report(
             clean(item.name),
             clean(item.scope),
             clean(item.status),
-            "yes" if item.shared_with else "-",
+            str(len(item.shared_with)) if item.shared_with else "-",
             item_path(item, home=home, cwd=cwd, limit=_MAX_LIST_PATH_LENGTH),
         )
         for item in items

@@ -803,8 +803,19 @@ def test_skill_shared_between_new_and_old_agents(machine, capsys, tmp_path):
     assert main([]) == 0
     out = capsys.readouterr().out
     # OpenCode reads Claude Code's directory and shares ~/.agents/skills with Pi.
-    assert " yes " in next(line for line in out.splitlines() if " common " in line)
-    assert " yes " in next(line for line in out.splitlines() if " both " in line)
+    assert " 1 " in next(line for line in out.splitlines() if " common " in line)
+    assert " 1 " in next(line for line in out.splitlines() if " both " in line)
+
+
+def test_shared_column_counts_the_other_agents(machine, capsys):
+    machine.install("codex", "opencode", "pi")
+    (machine.home / ".codex").mkdir()
+    (machine.home / ".pi" / "agent").mkdir(parents=True)
+    (machine.home / ".config" / "opencode").mkdir(parents=True)
+    write_skill(machine.home / ".agents" / "skills" / "both", named("both"))
+    assert main([]) == 0
+    lines = [line for line in capsys.readouterr().out.splitlines() if " both " in line]
+    assert len(lines) == 3 and all(" 2 " in line for line in lines)
 
 
 def test_override_note_only_when_the_override_is_what_was_found(

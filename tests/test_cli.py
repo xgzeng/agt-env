@@ -232,8 +232,8 @@ def test_shared_skills_marked_under_each_agent(machine, capsys, tmp_path):
     write_skill(machine.home / ".codex" / "skills" / "solo")
     found = {(r[0], r[2]): r[5] for r in rows(run(capsys)[1])}
     assert found == {
-        ("claude-code", "common"): "yes",
-        ("codex", "common"): "yes",
+        ("claude-code", "common"): "1",
+        ("codex", "common"): "1",
         ("codex", "solo"): "-",
     }
 
