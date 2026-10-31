@@ -30,7 +30,7 @@ jobs:
             exit 1
           fi
 
-      # The speed test runs in CI instead: a slow runner shouldn't stop a release.
+      # A slow runner shouldn't stop a release, so the speed test is left out.
       - name: Run tests
         run: uv run --python 3.11 pytest --ignore=tests/test_speed.py
 

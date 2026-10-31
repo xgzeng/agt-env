@@ -51,4 +51,5 @@ def test_fixture_has_500_items(reference_fixture):
 @pytest.mark.parametrize("run", [run_piped, run_on_terminal], ids=["plain", "rich"])
 def test_listing_is_fast_enough(reference_fixture, run):
     seconds, _ = best_time(run, reference_fixture)
+    print(f"\n{run.__name__}: {seconds * 1000:.0f} ms")
     assert seconds < LIMIT_SECONDS, f"took {seconds * 1000:.0f} ms"

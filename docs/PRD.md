@@ -238,7 +238,7 @@ These are acceptance checks, run against fixtures in CI, except where noted:
 4. **Inertness:** a test project config naming a marker-writing command leaves no marker after any P0 command.
 5. **Resilience:** corrupting any single agent's config still produces full results for the others, with exit code 0 and a warning.
 6. **Clean start:** with an empty `HOME` and no agents on `PATH`, `agt-view` exits 0 with a clear message.
-7. **Speed:** the 200 ms target holds on the reference fixture. CI checks this on Linux only, because macOS runners vary too much for a time limit.
+7. **Speed:** the 200 ms target holds on the reference fixture on a developer machine. CI only reports the timings, because shared runners vary too much for a time limit.
 8. **Zero-install run:** in a clean environment, `uvx` runs the built package and `agt-view` produces correct output.
 
 ## 9. Risks
