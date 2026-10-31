@@ -10,11 +10,11 @@ from pathlib import Path
 
 from agt_view.adapters.base import (
     Context,
-    extension_item,
     first_existing,
     list_entries,
     load_once,
     mcp_item,
+    plugin_item,
     read_json,
     skill_item,
 )
@@ -116,7 +116,7 @@ class Antigravity:
             manifest, _ = read_json(manifest_path, [])
             description = manifest.get("description")
             items.append(
-                extension_item(
+                plugin_item(
                     self.id,
                     path.name,
                     "plugin",

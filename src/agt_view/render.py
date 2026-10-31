@@ -9,9 +9,7 @@ from agt_view.model import AgentReport, Item, Status
 _ESCAPE_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\^_][^\x1b]*(?:\x1b\\)?|.)?"
 )
-_COLUMNS = ("KIND", "NAME", "SCOPE", "STATUS", "SHARED", "PATH")
-_MAX_LIST_PATH_LENGTH = 48
-_ELLIPSIS = "..."
+_COLUMNS = ("SCOPE/KIND", "NAME", "STATUS", "SHARED")
 _BOLD, _RED, _DIM, _RESET = "\x1b[1m", "\x1b[31m", "\x1b[2m", "\x1b[0m"
 _DETAIL_LABELS = {
     "transport": "Transport",
@@ -41,19 +39,8 @@ def display_path(path: Path, *, home: Path, cwd: Path) -> str:
     return str(path)
 
 
-def _shorten_middle(text: str, limit: int) -> str:
-    """Cut the middle, keeping more of the end, which names the item."""
-    if len(text) <= limit:
-        return text
-    kept = limit - len(_ELLIPSIS)
-    start = kept // 3
-    return f"{text[:start]}{_ELLIPSIS}{text[start - kept :]}"
-
-
-def item_path(item: Item, *, home: Path, cwd: Path, limit: int | None = None) -> str:
+def item_path(item: Item, *, home: Path, cwd: Path) -> str:
     path = clean(display_path(item.source_path, home=home, cwd=cwd))
-    if limit is not None:
-        path = _shorten_middle(path, limit)
     return f"{path} (symlink)" if item.is_symlink else path
 
 
@@ -76,50 +63,11 @@ def _status_text(status: Status, width: int, color: bool) -> str:
     return text
 
 
-def render_report(
-    report: AgentReport, items: list[Item], *, home: Path, cwd: Path, color: bool
-) -> str:
-    name = clean(report.agent)
-    state = clean(header(report, home=home, cwd=cwd))
-    lines = [f"{_BOLD}{name}{_RESET}  {state}" if color else f"{name}  {state}"]
-    if not items:
-        lines.append("  no items")
-        return "\n".join(lines)
-
-    rows = [
-        (
-            clean(item.kind),
-            clean(item.name),
-            clean(item.scope),
-            clean(item.status),
-            str(len(item.shared_with)) if item.shared_with else "-",
-            item_path(item, home=home, cwd=cwd, limit=_MAX_LIST_PATH_LENGTH),
-        )
-        for item in items
-    ]
-    widths = [max(len(row[i]) for row in [_COLUMNS, *rows]) for i in range(len(_COLUMNS))]
-
-    def format_row(row: tuple[str, ...], item: Item | None = None) -> str:
-        cells = [cell.ljust(width) for cell, width in zip(row, widths)]
-        if item:
-            cells[3] = _status_text(item.status, widths[3], color)
-        return ("  " + "  ".join(cells)).rstrip()
-
-    lines.append(format_row(_COLUMNS))
-    lines.extend(format_row(row, item) for row, item in zip(rows, items))
-    return "\n".join(lines)
-
-
-def render_item(report: AgentReport, item: Item, *, home: Path, cwd: Path, color: bool) -> str:
-    """Show everything known about one item. Fields with no value are left out."""
-    title = f"{clean(item.name)}  ({clean(item.kind)}, {clean(report.agent)})"
+def _detail_lines(item: Item, *, home: Path, cwd: Path) -> list[str]:
+    """Everything the columns don't show. Fields with no value are left out."""
     fields: list[tuple[str, str]] = []
     if item.native_kind != item.kind:
         fields.append(("Agent's term", clean(item.native_kind)))
-    fields.append(("Scope", clean(item.scope)))
-    fields.append(("Status", _status_text(item.status, 0, color)))
-    if not report.active:
-        fields.append(("Agent", clean(header(report, home=home, cwd=cwd))))
     if item.description:
         fields.append(("Description", clean(item.description)))
     fields.append(("Path", item_path(item, home=home, cwd=cwd)))
@@ -135,6 +83,52 @@ def render_item(report: AgentReport, item: Item, *, home: Path, cwd: Path, color
             fields.append((label, clean(str(value))))
 
     width = max(len(label) for label, _ in fields) + 1
-    lines = [f"{_BOLD}{title}{_RESET}" if color else title]
-    lines.extend(f"  {f'{label}:'.ljust(width)}  {value}" for label, value in fields)
+    return [f"{f'{label}:'.ljust(width)}  {value}" for label, value in fields]
+
+
+def render_report(
+    report: AgentReport,
+    items: list[Item],
+    *,
+    home: Path,
+    cwd: Path,
+    color: bool,
+    detail: bool = False,
+) -> str:
+    name = clean(report.agent)
+    state = clean(header(report, home=home, cwd=cwd))
+    lines = [f"{_BOLD}{name}{_RESET}  {state}" if color else f"{name}  {state}"]
+    if not items:
+        lines.append("  no items")
+        return "\n".join(lines)
+
+    rows = [
+        (
+            f"{clean(item.scope)}/{clean(item.kind)}",
+            clean(item.name),
+            clean(item.status),
+            str(len(item.shared_with)) if item.shared_with else "-",
+        )
+        for item in items
+    ]
+    widths = [max(len(row[i]) for row in [_COLUMNS, *rows]) for i in range(len(_COLUMNS))]
+
+    def format_row(row: tuple[str, ...], item: Item | None = None) -> str:
+        cells = [cell.ljust(width) for cell, width in zip(row, widths)]
+        if item:
+            cells[2] = _status_text(item.status, widths[2], color)
+        return ("  " + "  ".join(cells)).rstrip()
+
+    # Details start at the NAME column.
+    indent = " " * (2 + widths[0] + 2)
+    table_width = sum(widths) + 2 * (len(widths) - 1)
+    separator = f"  {'-' * table_width}"
+    lines.append(format_row(_COLUMNS))
+    for row, item in zip(rows, items):
+        if detail:
+            lines.append(f"{_DIM}{separator}{_RESET}" if color else separator)
+        lines.append(format_row(row, item))
+        if detail:
+            for line in _detail_lines(item, home=home, cwd=cwd):
+                lines.append(f"{indent}{_DIM}{line}{_RESET}" if color else f"{indent}{line}")
     return "\n".join(lines)

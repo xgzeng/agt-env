@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-`agt-view` is a read-only CLI that answers one question: **what can each coding agent on my machine use from this directory?** It finds the skills, MCP servers, and plugins/extensions configured for each agent, puts them in one model, and shows them in the terminal.
+`agt-view` is a read-only CLI that answers one question: **what can each coding agent on my machine use from this directory?** It finds the skills, MCP servers, and plugins configured for each agent, puts them in one model, and shows them in the terminal.
 
 ## 2. Problem
 
@@ -51,9 +51,9 @@ Anyone running several coding agents has capabilities scattered across incompati
 ### Core scenarios
 
 1. "What do I have across all my agents?" → `agt-view`
-2. "Which MCP servers can Codex use here?" → `agt-view codex --kind mcp`
-3. "Where does this skill come from, and who else has it?" → `agt-view show my-skill`
-4. "What does this repo add to my agents?" → `agt-view list --scope project`
+2. "Which MCP servers can Codex use here?" → `agt-view -a codex -k mcp`
+3. "Where does this skill come from, and who else has it?" → `agt-view -n my-skill --detail`
+4. "What does this repo add to my agents?" → `agt-view --scope project`
 
 ## 5. Functional requirements
 
@@ -63,35 +63,53 @@ Priorities: **P0** is required for v1, **P1** follows soon after, and **P2** is 
 
 | Command | Purpose | Priority |
 |---|---|---|
-| `agt-view list [agent...]` | Agents and their items, filterable. This is the default command | P0 |
-| `agt-view show <name> [agent...]` | All details for matching items across agents | P0 |
+| `agt-view [keyword...]` | Agents and their items, filterable | P0 |
 | `agt-view doctor` | Broken symlinks, parse failures, drifted copies, shadowing | P1 |
 | `agt-view probe` | Opt-in live checks through agent CLIs (see 5.5) | P2 |
 
-`agt-view` with no subcommand is the same as `agt-view list` and takes the same arguments, so `agt-view codex` lists only Codex. Agents appear in rank order (see section 6), each with a header showing its state and config location, followed by its items sorted by kind, then name.
+Agents appear in rank order (see section 6), each with a header showing its state and config location, followed by its items sorted by scope (project, user, system), then kind, then name.
 
-**Flags:** `--all`, `-k`/`--kind <kind>` (repeatable), `-s`/`--scope user|project|system`, `-p`/`--project <path>`, `--no-color`.
+**Flags:** `--all`, `--detail`, `-a`/`--agent <agent>` (repeatable), `-n`/`--name <text>` (repeatable), `-k`/`--kind <kind>` (repeatable), `-s`/`--scope project|user|system`, `-p`/`--project <path>`, `--no-color`.
+
+**Filters:** different filters narrow each other.
+
+- `-a` shows only the named agents, even ones hidden by default.
+- `-n` matches a case-insensitive part of the item name. Repeating it widens the results.
+- Keywords match a case-insensitive part of everything shown for an item, including its details and path. Words in one argument narrow and separate arguments widen, so `agt-view "browser test" lint` finds (browser and test) or lint.
+- With `-n` or keywords, agents with no matches are left out. If none are left, the output says so.
 
 **Illustrative output:**
 
 ```text
 $ agt-view
 agent-a  ~/.agent-a
-  KIND       NAME        SCOPE    STATUS    SHARED  PATH
-  skill      my-skill    user     enabled   1       ~/.agent-a/skills/my-skill
-  skill      repo-skill  project  enabled   -       ./.agent-a/skills/repo-skill
-  mcp        my-server   user     enabled   -       ~/.agent-a/config.json
-  extension  my-plugin   user     disabled  -       ~/.agent-a/plugins/my-plugin
+  SCOPE/KIND     NAME        STATUS    SHARED
+  project/skill  repo-skill  enabled   -
+  user/skill     my-skill    enabled   1
+  user/mcp       my-server   enabled   -
+  user/plugin    my-plugin   disabled  -
 
 agent-b  /opt/agent-b (set by AGENT_B_HOME)
-  KIND       NAME        SCOPE    STATUS    SHARED  PATH
-  skill      my-skill    user     enabled   1       /opt/agent-b/skills/my-skill (symlink)
-  extension  other       user     unknown   -       /opt/agent-b/extensions/other
+  SCOPE/KIND   NAME      STATUS   SHARED
+  user/skill   my-skill  enabled  1
+  user/plugin  other     unknown  -
 
 Hidden: agent-c, agent-d. Use --all for details.
 ```
 
-`list` shows how many other agents share a skill and cuts paths over 48 characters in the middle. `show` gives the other agents and the full path.
+The table shows how many other agents share a skill. `--detail` adds lines under each item, starting at the `NAME` column, for everything the columns don't show, and a line of dashes after the table head and between items:
+
+```text
+$ agt-view -a agent-b -n my-skill --detail
+agent-b  /opt/agent-b (set by AGENT_B_HOME)
+  SCOPE/KIND  NAME      STATUS   SHARED
+  -------------------------------------
+  user/skill  my-skill  enabled  1
+              Description:  Does a thing
+              Path:         /opt/agent-b/skills/my-skill (symlink)
+              Real path:    /opt/shared/my-skill
+              Shared with:  agent-a
+```
 
 With `--all`, hidden agents are added with their state:
 
@@ -106,7 +124,7 @@ agent-d  installed, not configured
 |---|---|---|
 | `skill` | Skill directory or file, usually `SKILL.md` | P0 |
 | `mcp` | Configured MCP server | P0 |
-| `extension` | Plugin or extension, with the agent's own term kept in `native_kind` | P0 |
+| `plugin` | Plugin or extension, with the agent's own term kept in `native_kind` | P0 |
 | `hook` | Lifecycle hook | P1 |
 | `subagent` | Custom agent definition | P1 |
 | `command` | Custom slash command | P1 |
@@ -119,14 +137,14 @@ agent-d  installed, not configured
 - **FR-3 (P0):** Get all results by reading files on disk. Only `probe` (FR-14) may run other programs, so all other commands must not launch agent CLIs or start MCP servers.
 - **FR-4 (P0):** Determine status from the agent's own configuration. An item in a plugin cache that is not enabled must not be reported as `enabled`.
 - **FR-5 (P0):** Follow symlinks and record both the path found and the resolved path. Report a dangling symlink as `broken`.
-- **FR-6 (P0):** Mark items that resolve to the same real path as shared in `list` and `show`, while still listing them under each agent.
+- **FR-6 (P0):** Mark items that resolve to the same real path as shared, while still listing them under each agent.
 - **FR-7 (P1):** Flag same-named skills at different real paths with different content as drift.
 - **FR-8 (P1):** Show when a project item shadows a user item, following that agent's precedence rules.
 - **FR-9 (P1):** List skills bundled in enabled plugins, with namespaced names such as `my-plugin:my-skill`.
 - **FR-10 (P0):** Only treat a directory as a skill if it meets the agent's definition. A directory that only groups other skills must be descended into or skipped, not counted.
-- **FR-20 (P0):** Resolve locations from the environment, not fixed paths: honor `HOME`, XDG variables, and each agent's documented config-directory overrides. When an override moves an agent's location away from its default, `list` shows the location in use and the variable that set it in the agent's header.
+- **FR-20 (P0):** Resolve locations from the environment, not fixed paths: honor `HOME`, XDG variables, and each agent's documented config-directory overrides. When an override moves an agent's location away from its default, the output shows the location in use and the variable that set it in the agent's header.
 - **FR-21 (P0):** Work from any starting state. With no agents detected, or an agent's directories missing or unreadable, the tool still succeeds and says what it found. A missing location isn't a warning; an unreadable one is.
-- **FR-22 (P0):** By default, `list` shows only agents that are both installed and configured, and names the agents it hid. `--all` shows every detected agent, and naming an agent always shows it, in each case with its state.
+- **FR-22 (P0):** By default, only agents that are both installed and configured are shown, and the output names the agents it hid. `--all` shows every detected agent, and `-a` always shows the agent it names, in each case with its state.
 
 ### 5.4 Data model
 
@@ -136,7 +154,7 @@ Every item has these fields, and adapters must fill them consistently:
 |---|---|---|
 | `id` | Unique identity of the item | `agent-a:skill:user:my-skill` |
 | `name` | Display name | `my-skill` |
-| `kind` | Normalized kind (see 5.2) | `extension` |
+| `kind` | Normalized kind (see 5.2) | `plugin` |
 | `native_kind` | The agent's own term | `plugin` |
 | `agent` | Agent ID (see section 6) | `agent-a` |
 | `scope` | `user`, `project`, or `system` | `user` |
@@ -161,7 +179,7 @@ Every item has these fields, and adapters must fill them consistently:
 
 - **FR-16 (P0):** Use a human-readable table on a TTY. Disable color when piped, with `--no-color`, or when `NO_COLOR` is set.
 - **FR-17 (P0):** A broken config for one agent must not stop the others. It produces a warning on stderr naming the agent and file, and items from that agent's other sources still appear.
-- **FR-18 (P0):** Exit codes: `0` for success, including partial results with warnings and empty results; `1` for a fatal runtime error; `2` for a usage error. `show` with no match exits `1`.
+- **FR-18 (P0):** Exit codes: `0` for success, including partial results with warnings and empty results; `1` for a fatal runtime error; `2` for a usage error.
 - **FR-19 (P0):** Unknown fields in agent configs are ignored without error, so a new agent release doesn't break parsing.
 
 ## 6. Agent support
@@ -203,7 +221,7 @@ The ranking can change without affecting the architecture.
 
 | Area | Requirement |
 |---|---|
-| **Performance** | `agt-view list` finishes in under 200 ms on a reference fixture of 10 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
+| **Performance** | `agt-view` finishes in under 200 ms on a reference fixture of 10 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
 | **Distribution** | Published to PyPI and runnable with `uvx agt-view`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical |
 | **Portability** | Linux and macOS, on any home directory layout, shell, or version manager |
 | **Extensibility** | A new adapter touches only its own module, fixtures, and one registry line |
@@ -219,7 +237,7 @@ These are acceptance checks, all run against fixtures in CI:
 3. **Secret safety:** a test config with planted secrets produces no secret text in any command's output.
 4. **Inertness:** a test project config naming a marker-writing command leaves no marker after any P0 command.
 5. **Resilience:** corrupting any single agent's config still produces full results for the others, with exit code 0 and a warning.
-6. **Clean start:** with an empty `HOME` and no agents on `PATH`, `agt-view list` exits 0 with a clear message.
+6. **Clean start:** with an empty `HOME` and no agents on `PATH`, `agt-view` exits 0 with a clear message.
 7. **Speed:** the 200 ms target holds on the reference fixture.
 8. **Zero-install run:** in a clean environment, `uvx` runs the built package and `agt-view` produces correct output.
 
@@ -235,8 +253,8 @@ These are acceptance checks, all run against fixtures in CI:
 
 ## 10. Milestones
 
-1. **M1, foundation:** data model, adapter interface, skill discovery, Claude Code and Codex adapters, `list`, packaging for `uvx`.
-2. **M2, P0 complete:** remaining P0 adapters, MCP and extensions, `show`, safety tests.
+1. **M1, foundation:** data model, adapter interface, skill discovery, Claude Code and Codex adapters, listing, packaging for `uvx`.
+2. **M2, P0 complete:** remaining P0 adapters, MCP and plugins, details and filters, safety tests.
 3. **M3, diagnostics:** `doctor`, drift and shadow detection, plugin-bundled skills, hooks, subagents, commands.
 4. **M4, breadth:** `probe`, and P2 adapters in rank order as demand appears.
 
@@ -248,10 +266,10 @@ These are acceptance checks, all run against fixtures in CI:
 |---|---|
 | Read-only in v1 | Keeps the tool safe to run anywhere and the scope small |
 | Static inspection by default | Fast and inert, with no dependence on an agent's startup, authentication, or network |
-| Unified `extension` kind | "Plugin" and "extension" vary by agent; `native_kind` keeps the original term |
+| Unified `plugin` kind | "Plugin" and "extension" vary by agent; `native_kind` keeps the original term |
 | Shared items listed under each agent | Each agent really can use them; sharing is shown separately |
 
 ### Open questions
 
 1. **Runtime gap:** should built-in skills and account-level connectors, which aren't in local config, be documented as out of scope permanently, or added through `probe`?
-2. **Shared skill directories:** some skill directories sit outside any one agent's own config and may be read by several agents. Which of these directories exist, and which agents read each one? This decides which agents a skill is listed under: `list` could otherwise claim an agent has a skill it never loads, or miss one it does. The answer is needed for each agent when its adapter is built. Until it is confirmed, skills from that directory aren't listed under that agent.
+2. **Shared skill directories:** some skill directories sit outside any one agent's own config and may be read by several agents. Which of these directories exist, and which agents read each one? This decides which agents a skill is listed under: the output could otherwise claim an agent has a skill it never loads, or miss one it does. The answer is needed for each agent when its adapter is built. Until it is confirmed, skills from that directory aren't listed under that agent.

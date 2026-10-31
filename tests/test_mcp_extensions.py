@@ -13,13 +13,14 @@ STDIO = {"command": "/bin/true"}
 
 
 def statuses(capsys, *args):
-    """Return {(kind, name, scope): status} from `list` output."""
+    """Return {(kind, name, scope): status} from the output."""
     assert main(list(args)) == 0
     found = {}
     for line in capsys.readouterr().out.splitlines():
         parts = line.split()
-        if line.startswith("  ") and parts[0] in ("skill", "mcp", "extension"):
-            found[(parts[0], parts[1], parts[2])] = parts[3]
+        scope, _, kind = parts[0].partition("/") if parts else ("", "", "")
+        if line.startswith("  ") and kind in ("skill", "mcp", "plugin"):
+            found[(kind, parts[1], scope)] = parts[2]
     return found
 
 
@@ -215,10 +216,10 @@ def test_claude_plugin_status(claude, capsys):
         enabledPlugins={"on@m": True, "off@m": False, "gone@m": True},
     )
     assert statuses(capsys) == {
-        ("extension", "on@m", "user"): "enabled",
-        ("extension", "off@m", "user"): "disabled",
-        ("extension", "unset@m", "user"): "unknown",
-        ("extension", "gone@m", "user"): "broken",
+        ("plugin", "on@m", "user"): "enabled",
+        ("plugin", "off@m", "user"): "disabled",
+        ("plugin", "unset@m", "user"): "unknown",
+        ("plugin", "gone@m", "user"): "broken",
     }
 
 
@@ -226,7 +227,7 @@ def test_claude_project_settings_override_plugin_state(claude, capsys):
     write_claude_plugins(claude, {"p@m": [install_claude_plugin(claude, "p@m")]})
     write_settings(claude.home / ".claude" / "settings.json", enabledPlugins={"p@m": True})
     write_settings(claude.project / ".claude" / "settings.json", enabledPlugins={"p@m": False})
-    assert statuses(capsys)[("extension", "p@m", "user")] == "disabled"
+    assert statuses(capsys)[("plugin", "p@m", "user")] == "disabled"
 
 
 def test_claude_project_plugin_only_listed_in_its_project(claude, capsys):
@@ -243,7 +244,7 @@ def test_claude_project_plugin_only_listed_in_its_project(claude, capsys):
             ],
         },
     )
-    assert list(statuses(capsys)) == [("extension", "here@m", "project")]
+    assert list(statuses(capsys)) == [("plugin", "here@m", "project")]
 
 
 def test_codex_servers(codex, capsys):
@@ -310,10 +311,10 @@ enabled = true
     )
     # A cached plugin with no config entry isn't reported as available.
     assert statuses(capsys) == {
-        ("extension", "missing@m", "user"): "broken",
-        ("extension", "off@m", "user"): "disabled",
-        ("extension", "on@m", "user"): "enabled",
-        ("extension", "unset@m", "user"): "unknown",
+        ("plugin", "missing@m", "user"): "broken",
+        ("plugin", "off@m", "user"): "disabled",
+        ("plugin", "on@m", "user"): "enabled",
+        ("plugin", "unset@m", "user"): "unknown",
     }
 
 
@@ -323,7 +324,7 @@ def test_kind_filter_and_order(claude, capsys):
     skill = claude.home / ".claude" / "skills" / "z-skill"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("x")
-    assert [key[0] for key in statuses(capsys)] == ["skill", "mcp", "extension"]
+    assert [key[0] for key in statuses(capsys)] == ["skill", "mcp", "plugin"]
     assert list(statuses(capsys, "--kind", "mcp")) == [("mcp", "a-server", "user")]
 
 
@@ -334,10 +335,10 @@ def test_servers_with_one_config_file_are_not_marked_shared(claude, capsys):
     assert "claude-code" not in out.split("\n", 1)[1]
 
 
-def test_mcp_path_column_shows_config_file(claude, capsys):
+def test_mcp_path_detail_shows_config_file(claude, capsys):
     write_state(claude, mcpServers={"s": STDIO})
     (claude.project / ".mcp.json").write_text('{"mcpServers": {"r": {"command": "x"}}}')
-    main([])
+    main(["--detail"])
     out = capsys.readouterr().out
     assert "~/.claude.json" in out and "./.mcp.json" in out
 
@@ -378,7 +379,7 @@ def test_secrets_never_printed(machine, capsys):
     machine.install("claude", "codex")
     (machine.home / ".claude").mkdir()
     plant_secrets(machine)
-    assert main(["--all"]) == 0
+    assert main(["--all", "--detail"]) == 0
     captured = capsys.readouterr()
     assert "local" in captured.out and "remote" in captured.out
     assert SECRET not in captured.out + captured.err
@@ -453,7 +454,7 @@ def test_corrupt_settings_make_server_status_unknown(claude, capsys):
 
 def test_hostile_server_name_cannot_control_the_terminal(claude, capsys):
     write_state(claude, mcpServers={"evil\x1b[2J\x1b]0;title\x07name": STDIO})
-    main([])
+    main(["--detail"])
     out = capsys.readouterr().out
     assert "\x1b" not in out and "\x07" not in out and "evilname" in out
 

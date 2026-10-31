@@ -229,7 +229,7 @@ def test_local_plugins_match(api):
         for plugin in api("/api/plugin")
         if plugin.get("source", {}).get("type") == "local"
     }
-    ours = {str(item.source_path) for item in scan(api, Kind.EXTENSION)}
+    ours = {str(item.source_path) for item in scan(api, Kind.PLUGIN)}
     assert ours == theirs
 
 
@@ -263,7 +263,7 @@ def test_configured_plugins_match(api):
         },
     )
     theirs = their_plugins(api)
-    ours = {str(item.source_path): item.status for item in scan(api, Kind.EXTENSION)}
+    ours = {str(item.source_path): item.status for item in scan(api, Kind.PLUGIN)}
     active = {path for path, state in theirs.items() if state == "active"}
     assert {path for path, status in ours.items() if status is Status.ENABLED} == active
     assert ours[str(config / "gone")] is Status.BROKEN and theirs[str(config / "gone")] == "failed"
@@ -292,7 +292,7 @@ def test_plugin_removals_match(api, removals):
     write(config / "opencode.json", {"plugins": removals})
     theirs = {path for path, state in their_plugins(api).items() if state == "active"}
     ours = {
-        str(item.source_path) for item in scan(api, Kind.EXTENSION) if item.status is Status.ENABLED
+        str(item.source_path) for item in scan(api, Kind.PLUGIN) if item.status is Status.ENABLED
     }
     assert ours == theirs
 

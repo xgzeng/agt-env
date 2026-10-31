@@ -15,14 +15,15 @@ def run(capsys, *args):
 
 
 def rows(out):
-    """Parse item rows into (agent, kind, name, scope, status, shared, path)."""
+    """Parse item rows into (agent, kind, name, scope, status, shared)."""
     result, agent = [], None
     for line in out.splitlines():
         if line and not line.startswith(" "):
             agent = line.split()[0]
-        elif line.strip() and not line.strip().startswith(("KIND", "no items")):
-            parts = re.split(r"\s{2,}", line.strip())
-            result.append((agent, *parts))
+        elif line.strip() and not line.strip().startswith(("SCOPE/KIND", "no items")):
+            first, *others = re.split(r"\s{2,}", line.strip())
+            scope, _, kind = first.partition("/")
+            result.append((agent, kind, others[0], scope, *others[1:]))
     return result
 
 
@@ -45,11 +46,6 @@ def test_clean_start_exits_zero_with_message(machine, capsys):
     assert err == ""
 
 
-def test_no_subcommand_is_list(machine, capsys):
-    write_skill(claude(machine) / "skills" / "one")
-    assert run(capsys) == run(capsys, "list")
-
-
 def test_lists_items_by_scope_and_sorted(machine, capsys):
     skills = claude(machine) / "skills"
     write_skill(skills / "zeta")
@@ -58,20 +54,56 @@ def test_lists_items_by_scope_and_sorted(machine, capsys):
     _, out, _ = run(capsys)
     assert out.splitlines()[0] == "claude-code  ~/.claude"
     assert [(r[2], r[3], r[4]) for r in rows(out)] == [
-        ("alpha", "user", "enabled"),
         ("repo", "project", "enabled"),
+        ("alpha", "user", "enabled"),
         ("zeta", "user", "enabled"),
     ]
 
 
-def test_shows_where_each_skill_was_found(machine, capsys, tmp_path):
+def test_scope_sorts_before_kind_and_name(machine, capsys):
+    codex(machine)
+    write_skill(machine.system / "etc" / "codex" / "skills" / "a-admin")
+    write_skill(machine.home / ".agents" / "skills" / "b-user")
+    write_skill(machine.project / ".agents" / "skills" / "z-repo")
+    config = machine.project / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text('[mcp_servers.c-server]\ncommand = "x"\n')
+    assert [(r[1], r[2], r[3]) for r in rows(run(capsys)[1])] == [
+        ("skill", "z-repo", "project"),
+        ("mcp", "c-server", "project"),
+        ("skill", "b-user", "user"),
+        ("skill", "a-admin", "system"),
+    ]
+
+
+def details(out):
+    """Parse --detail output into {item name: {label: value}}."""
+    result, current = {}, None
+    for line in out.splitlines():
+        match = re.fullmatch(r"\s+([A-Z][A-Za-z' ]*):\s+(.*)", line)
+        if match:
+            current[match[1]] = match[2]
+        elif line.startswith("  ") and not line.strip().startswith(
+            ("SCOPE/KIND", "no items", "---")
+        ):
+            current = result.setdefault(re.split(r"\s{2,}", line.strip())[1], {})
+    return result
+
+
+def test_paths_only_appear_as_a_detail(machine, capsys):
+    write_skill(claude(machine) / "skills" / "personal")
+    assert "skills/personal" not in run(capsys)[1]
+    assert "skills/personal" in run(capsys, "--detail")[1]
+
+
+def test_detail_shows_where_each_skill_was_found(machine, capsys, tmp_path):
     skills = claude(machine) / "skills"
     write_skill(skills / "personal")
     write_skill(machine.project / ".claude" / "skills" / "repo")
     target = write_skill(tmp_path / "elsewhere" / "target")
     (skills / "linked").symlink_to(target)
     (skills / "gone").symlink_to(tmp_path / "missing")
-    found = {r[2]: r[6] for r in rows(run(capsys)[1])}
+    found = {name: d["Path"] for name, d in details(run(capsys, "--detail")[1]).items()}
     assert found == {
         "gone": "~/.claude/skills/gone (symlink)",
         "linked": "~/.claude/skills/linked (symlink)",
@@ -85,35 +117,17 @@ def test_only_a_linked_skill_is_marked_not_a_linked_parent(machine, capsys, tmp_
     write_skill(real_skills / "one")
     claude(machine).mkdir()
     (machine.home / ".claude" / "skills").symlink_to(real_skills)
-    assert rows(run(capsys)[1])[0][6] == "~/.claude/skills/one"
+    assert details(run(capsys, "--detail")[1])["one"]["Path"] == "~/.claude/skills/one"
 
 
-def test_long_path_is_shortened_in_the_middle(machine, capsys):
-    machine.install("claude")
-    skill = machine.home / ".claude" / "skills" / ("x" * 60) / "SKILL.md"
-    skill.parent.mkdir(parents=True)
-    skill.write_text("---\nname: long\ndescription: d\n---\n")
-    assert main([]) == 0
-    path = rows(capsys.readouterr().out)[0][6]
-    assert len(path) == 48
-    assert path.startswith("~/.claude/skill...") and path.endswith("x" * 20)
-
-
-def test_path_limit_leaves_the_symlink_mark_intact(machine, capsys, tmp_path):
+def test_long_path_is_not_cut(machine, capsys, tmp_path):
     machine.install("claude")
     skills = machine.home / ".claude" / "skills"
-    skills.mkdir(parents=True)
-    (skills / ("y" * 60)).symlink_to(write_skill(tmp_path / "target", "name: long\ndescription: d"))
-    assert main([]) == 0
-    assert rows(capsys.readouterr().out)[0][6].endswith("yyy (symlink)")
-
-
-def test_show_keeps_the_full_path(machine, capsys):
-    machine.install("claude")
-    skill = machine.home / ".claude" / "skills" / ("x" * 60)
-    write_skill(skill, "name: long\ndescription: d")
-    assert main(["show", "long"]) == 0
-    assert f"~/.claude/skills/{'x' * 60}" in capsys.readouterr().out
+    write_skill(skills / ("x" * 60), "name: long\ndescription: d")
+    (skills / ("y" * 60)).symlink_to(write_skill(tmp_path / "target", "name: link\ndescription: d"))
+    found = details(run(capsys, "--detail")[1])
+    assert found["long"]["Path"] == f"~/.claude/skills/{'x' * 60}"
+    assert found["link"]["Path"] == f"~/.claude/skills/{'y' * 60} (symlink)"
 
 
 def test_agent_with_no_items(machine, capsys):
@@ -149,7 +163,7 @@ def test_installed_not_configured_state(machine, capsys):
 
 
 def test_named_agent_shown_even_when_undetected(machine, capsys):
-    _, out, _ = run(capsys, "codex")
+    _, out, _ = run(capsys, "-a", "codex")
     assert "codex  not installed, not configured" in out
 
 
@@ -164,23 +178,30 @@ def test_filters(machine, capsys):
     write_skill(claude(machine) / "skills" / "personal")
     write_skill(machine.project / ".claude" / "skills" / "repo")
     write_skill(codex(machine) / "skills" / "other")
-    _, out, _ = run(capsys, "--scope", "project", "claude-code")
+    _, out, _ = run(capsys, "--scope", "project", "--agent", "claude-code")
     assert [r[2] for r in rows(out)] == ["repo"]
     assert "codex" not in out
 
 
-def test_agents_can_be_named_around_flags(machine, capsys):
+def test_agent_flag_is_repeatable(machine, capsys):
+    write_skill(claude(machine) / "skills" / "personal")
+    write_skill(codex(machine) / "skills" / "other")
+    (machine.home / ".pi" / "agent").mkdir(parents=True)
+    machine.install("pi")
+    _, out, _ = run(capsys, "-a", "codex", "--agent", "claude-code")
+    assert {r[0] for r in rows(out)} == {"claude-code", "codex"}
+    assert out.startswith("claude-code") and "pi " not in out
+
+
+def test_flags_and_keywords_can_be_mixed(machine, capsys):
     write_skill(claude(machine) / "skills" / "personal")
     write_skill(codex(machine) / "skills" / "other")
     for args in (
-        ("claude-code", "--kind", "skill"),
-        ("--kind", "skill", "claude-code"),
-        ("list", "--kind", "skill", "claude-code"),
+        ("personal", "--kind", "skill"),
+        ("--kind", "skill", "personal"),
+        ("-a", "claude-code", "personal", "-k", "skill", "skill"),
     ):
-        _, out, _ = run(capsys, *args)
-        assert "personal" in out and "codex" not in out
-    _, out, _ = run(capsys, "codex", "--kind", "skill", "claude-code")
-    assert "personal" in out and "other" in out
+        assert [r[2] for r in rows(run(capsys, *args)[1])] == ["personal"]
 
 
 def test_short_flags(machine, capsys, tmp_path):
@@ -201,7 +222,12 @@ def test_project_flag_selects_project(machine, capsys, tmp_path):
 
 
 def test_usage_errors_exit_two(machine, capsys):
-    for args in (["nope"], ["--project", "/does/not/exist"], ["--bogus"]):
+    for args in (
+        ["-a", "nope"],
+        ["--project", "/does/not/exist"],
+        ["--bogus"],
+        ["-k", "extension"],
+    ):
         with pytest.raises(SystemExit) as error:
             main(args)
         assert error.value.code == 2
@@ -438,7 +464,7 @@ def test_hostile_content_cannot_control_the_terminal(machine, capsys):
     )
     (skills / "tab\x1b[2Jdir").mkdir()
     (skills / "tab\x1b[2Jdir" / "SKILL.md").write_text("x")
-    code, out, _ = run(capsys)
+    code, out, _ = run(capsys, "--detail")
     assert code == 0
     assert "\x1b" not in out and "\x07" not in out and "\u202e" not in out
     assert "aredbc" in out

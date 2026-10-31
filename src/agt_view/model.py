@@ -9,12 +9,14 @@ from pathlib import Path
 class Kind(StrEnum):
     SKILL = "skill"
     MCP = "mcp"
-    EXTENSION = "extension"
+    PLUGIN = "plugin"
 
 
 class Scope(StrEnum):
-    USER = "user"
+    """In display order."""
+
     PROJECT = "project"
+    USER = "user"
     SYSTEM = "system"
 
 

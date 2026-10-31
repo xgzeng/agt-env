@@ -125,7 +125,7 @@ class Codex:
             items.append(
                 Item(
                     name=plugin_id,
-                    kind=Kind.EXTENSION,
+                    kind=Kind.PLUGIN,
                     native_kind="plugin",
                     agent=self.id,
                     scope=scope,

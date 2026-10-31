@@ -14,11 +14,11 @@ from pathlib import Path
 from agt_view.adapters.base import (
     Context,
     config_dir,
-    extension_item,
     first_existing,
     list_entries,
     load_once,
     mcp_item,
+    plugin_item,
     read_json,
     skill_item,
     unique_roots,
@@ -187,7 +187,7 @@ class Pi:
             else:
                 status = default if reliable else Status.UNKNOWN
             name = path.stem if path.suffix in _EXTENSION_SUFFIXES else path.name
-            items.append(extension_item(self.id, name, "extension", scope, status, path))
+            items.append(plugin_item(self.id, name, "extension", scope, status, path))
         return items
 
     def _packages(self, layers, trust, reliable) -> list[Item]:
@@ -201,7 +201,7 @@ class Pi:
                 default = Status.ENABLED if scope is Scope.USER else trust
                 status = default if reliable else Status.UNKNOWN
                 items.append(
-                    extension_item(
+                    plugin_item(
                         self.id, without_credentials(source), "package", scope, status, path
                     )
                 )

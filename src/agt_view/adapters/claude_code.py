@@ -134,7 +134,7 @@ class ClaudeCode:
         description = manifest.get("description")
         return Item(
             name=plugin_id,
-            kind=Kind.EXTENSION,
+            kind=Kind.PLUGIN,
             native_kind="plugin",
             agent=self.id,
             scope=scope,

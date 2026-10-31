@@ -96,7 +96,7 @@ def test_user_plugins_match(dirs, tmp_path):
     ours = {
         item.name: item.status is Status.ENABLED
         for item in scan(tmp_path, home, project)
-        if item.kind is Kind.EXTENSION and item.scope is Scope.USER
+        if item.kind is Kind.PLUGIN and item.scope is Scope.USER
     }
     assert theirs and ours == theirs
 

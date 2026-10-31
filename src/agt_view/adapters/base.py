@@ -112,7 +112,7 @@ def mcp_item(
     )
 
 
-def extension_item(
+def plugin_item(
     agent: str,
     name: str,
     native_kind: str,
@@ -123,7 +123,7 @@ def extension_item(
 ) -> Item:
     return Item(
         name=name,
-        kind=Kind.EXTENSION,
+        kind=Kind.PLUGIN,
         native_kind=native_kind,
         agent=agent,
         scope=scope,

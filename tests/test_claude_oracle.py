@@ -141,9 +141,7 @@ def test_plugins_match_claude_listing(tmp_path):
         (p["id"], p["scope"], p["enabled"], p.get("projectPath"))
         for p in json.loads(claude(home, project, "plugin", "list", "--json"))
     }
-    ours = {
-        item.name: item for item in scan(tmp_path, home, project) if item.kind is Kind.EXTENSION
-    }
+    ours = {item.name: item for item in scan(tmp_path, home, project) if item.kind is Kind.PLUGIN}
     print(theirs)
     # Theirs may include other projects' installs, marked with their projectPath.
     visible = {t for t in theirs if t[3] in (None, str(project))}

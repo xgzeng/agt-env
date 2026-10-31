@@ -22,8 +22,9 @@ def statuses(capsys, *args):
     found = {}
     for line in capsys.readouterr().out.splitlines():
         parts = line.split()
-        if line.startswith("  ") and parts[0] in ("skill", "mcp", "extension"):
-            found[(parts[0], parts[1], parts[2])] = parts[3]
+        scope, _, kind = parts[0].partition("/") if parts else ("", "", "")
+        if line.startswith("  ") and kind in ("skill", "mcp", "plugin"):
+            found[(kind, parts[1], scope)] = parts[2]
     return found
 
 
@@ -317,16 +318,16 @@ def test_opencode_plugins(opencode, capsys):
     project_plugins.mkdir(parents=True)
     (project_plugins / "repo.js").write_text("x")
     assert statuses(capsys) == {
-        ("extension", "@org/npm-two", "user"): "unknown",
-        ("extension", "dir", "user"): "enabled",
-        ("extension", "gone", "user"): "broken",
-        ("extension", "local", "user"): "enabled",
-        ("extension", "npm-one", "project"): "unknown",
-        ("extension", "other", "user"): "enabled",
-        ("extension", "repo", "project"): "enabled",
-        ("extension", "single", "user"): "enabled",
-        ("extension", "v2-listed", "user"): "unknown",
-        ("extension", "with-options", "user"): "unknown",
+        ("plugin", "@org/npm-two", "user"): "unknown",
+        ("plugin", "dir", "user"): "enabled",
+        ("plugin", "gone", "user"): "broken",
+        ("plugin", "local", "user"): "enabled",
+        ("plugin", "npm-one", "project"): "unknown",
+        ("plugin", "other", "user"): "enabled",
+        ("plugin", "repo", "project"): "enabled",
+        ("plugin", "single", "user"): "enabled",
+        ("plugin", "v2-listed", "user"): "unknown",
+        ("plugin", "with-options", "user"): "unknown",
     }
 
 
@@ -360,15 +361,15 @@ def test_opencode_configured_local_plugins(opencode, capsys):
         },
     )
     assert statuses(capsys) == {
-        ("extension", "empty", "user"): "broken",
-        ("extension", "listed", "user"): "enabled",
-        ("extension", "missing", "user"): "broken",
-        ("extension", "npm-object", "user"): "unknown",
-        ("extension", "obj", "user"): "enabled",
-        ("extension", "package-dir", "user"): "enabled",
-        ("extension", "server-entry", "user"): "enabled",
-        ("extension", "single.ts", "user"): "broken",
-        ("extension", "uri", "user"): "enabled",
+        ("plugin", "empty", "user"): "broken",
+        ("plugin", "listed", "user"): "enabled",
+        ("plugin", "missing", "user"): "broken",
+        ("plugin", "npm-object", "user"): "unknown",
+        ("plugin", "obj", "user"): "enabled",
+        ("plugin", "package-dir", "user"): "enabled",
+        ("plugin", "server-entry", "user"): "enabled",
+        ("plugin", "single.ts", "user"): "broken",
+        ("plugin", "uri", "user"): "enabled",
     }
 
 
@@ -385,10 +386,10 @@ def test_opencode_plugin_removals_are_ordered_and_match_ids(opencode, capsys):
         {"plugins": ["-id-two", "-local", "-id-*", "-team.*", "-id-obj", {"package": "./obj"}]},
     )
     assert statuses(capsys) == {
-        ("extension", "group", "user"): "disabled",
-        ("extension", "local", "user"): "enabled",
-        ("extension", "obj", "user"): "enabled",
-        ("extension", "two", "user"): "disabled",
+        ("plugin", "group", "user"): "disabled",
+        ("plugin", "local", "user"): "enabled",
+        ("plugin", "obj", "user"): "enabled",
+        ("plugin", "two", "user"): "disabled",
     }
 
 
@@ -408,8 +409,8 @@ def test_opencode_removing_everything_also_removes_skills_and_servers(opencode, 
     assert statuses(capsys) == {
         ("skill", "one", "user"): "disabled",
         ("mcp", "s", "user"): "disabled",
-        ("extension", "kept", "user"): "enabled",
-        ("extension", "local", "user"): "disabled",
+        ("plugin", "kept", "user"): "enabled",
+        ("plugin", "local", "user"): "disabled",
     }
 
 
@@ -429,7 +430,7 @@ def test_opencode_removal_makes_plugin_without_readable_id_unknown(opencode, cap
     (opencode.config / "plugins").mkdir()
     (opencode.config / "plugins" / "opaque.js").write_text("export default make()\n")
     write_json(opencode.config / "opencode.json", {"plugins": ["-something"]})
-    assert statuses(capsys) == {("extension", "opaque", "user"): "unknown"}
+    assert statuses(capsys) == {("plugin", "opaque", "user"): "unknown"}
 
 
 def test_opencode_config_overrides(opencode, capsys, tmp_path, monkeypatch):
@@ -508,7 +509,7 @@ def test_pi_project_items_depend_on_trust(pi, capsys, trust, expected):
     (extensions / "ext.ts").write_text("x")
     assert statuses(capsys) == {
         ("mcp", "s", "project"): expected,
-        ("extension", "ext", "project"): expected,
+        ("plugin", "ext", "project"): expected,
     }
 
 
@@ -565,12 +566,12 @@ def test_pi_extension_layouts(pi, capsys, tmp_path):
     listed.write_text("x")
     write_json(pi.agent / "settings.json", {"extensions": [str(listed)]})
     assert statuses(capsys) == {
-        ("extension", "file", "user"): "enabled",
-        ("extension", "gone", "user"): "broken",
-        ("extension", "indexed", "user"): "enabled",
-        ("extension", "listed", "user"): "enabled",
-        ("extension", "other", "user"): "enabled",
-        ("extension", "packaged", "user"): "enabled",
+        ("plugin", "file", "user"): "enabled",
+        ("plugin", "gone", "user"): "broken",
+        ("plugin", "indexed", "user"): "enabled",
+        ("plugin", "listed", "user"): "enabled",
+        ("plugin", "other", "user"): "enabled",
+        ("plugin", "packaged", "user"): "enabled",
     }
 
 
@@ -593,8 +594,8 @@ def test_pi_settings_exclusions(pi, capsys):
         ("skill", "by-glob", "user"): "disabled",
         ("skill", "by-path", "user"): "disabled",
         ("skill", "kept", "user"): "enabled",
-        ("extension", "kept", "user"): "enabled",
-        ("extension", "legacy", "user"): "disabled",
+        ("plugin", "kept", "user"): "enabled",
+        ("plugin", "legacy", "user"): "disabled",
     }
 
 
@@ -659,8 +660,8 @@ def test_pi_packages(pi, capsys):
         },
     )
     assert statuses(capsys) == {
-        ("extension", "git:github.com/example/more@v1", "user"): "enabled",
-        ("extension", "npm:@example/tools", "user"): "enabled",
+        ("plugin", "git:github.com/example/more@v1", "user"): "enabled",
+        ("plugin", "npm:@example/tools", "user"): "enabled",
     }
 
 
@@ -773,17 +774,17 @@ def test_antigravity_plugins(agy, capsys):
     (agy.shared / "plugins" / "no-manifest").mkdir()
     write_json(agy.shared / "config.json", {"plugins": {"off": {"enabled": False}}})
     assert statuses(capsys) == {
-        ("extension", "dir-name", "user"): "enabled",
-        ("extension", "nested", "user"): "enabled",
-        ("extension", "off", "user"): "disabled",
-        ("extension", "repo", "project"): "pending",
+        ("plugin", "dir-name", "user"): "enabled",
+        ("plugin", "nested", "user"): "enabled",
+        ("plugin", "off", "user"): "disabled",
+        ("plugin", "repo", "project"): "pending",
     }
 
 
 def test_antigravity_trusted_workspace_enables_project_plugin(agy, capsys):
     write_json(agy.cli / "settings.json", {"trustedWorkspaces": [str(agy.project)]})
     write_json(agy.project / ".agents" / "plugins" / "repo" / "plugin.json", {"name": "repo"})
-    assert statuses(capsys) == {("extension", "repo", "project"): "enabled"}
+    assert statuses(capsys) == {("plugin", "repo", "project"): "enabled"}
 
 
 def test_antigravity_corrupt_plugin_state_warns(agy, capsys):
@@ -803,8 +804,8 @@ def test_skill_shared_between_new_and_old_agents(machine, capsys, tmp_path):
     assert main([]) == 0
     out = capsys.readouterr().out
     # OpenCode reads Claude Code's directory and shares ~/.agents/skills with Pi.
-    assert " 1 " in next(line for line in out.splitlines() if " common " in line)
-    assert " 1 " in next(line for line in out.splitlines() if " both " in line)
+    assert next(line for line in out.splitlines() if " common " in line).endswith(" 1")
+    assert next(line for line in out.splitlines() if " both " in line).endswith(" 1")
 
 
 def test_shared_column_counts_the_other_agents(machine, capsys):
@@ -815,7 +816,7 @@ def test_shared_column_counts_the_other_agents(machine, capsys):
     write_skill(machine.home / ".agents" / "skills" / "both", named("both"))
     assert main([]) == 0
     lines = [line for line in capsys.readouterr().out.splitlines() if " both " in line]
-    assert len(lines) == 3 and all(" 2 " in line for line in lines)
+    assert len(lines) == 3 and all(line.endswith(" 2") for line in lines)
 
 
 def test_override_note_only_when_the_override_is_what_was_found(
@@ -876,7 +877,7 @@ def plant_new_agent_secrets(machine):
 def test_new_agent_secrets_never_printed_or_kept(machine, capsys):
     machine.install("opencode", "pi", "agy")
     plant_new_agent_secrets(machine)
-    assert main([]) == 0
+    assert main(["--detail"]) == 0
     captured = capsys.readouterr()
     for name in ("o-local", "o-remote", "p-local", "p-remote", "a-local", "a-remote"):
         assert name in captured.out
@@ -954,14 +955,15 @@ def test_hostile_names_are_cleaned_for_every_new_agent(machine, capsys):
         machine.home / ".gemini" / "config" / "mcp_config.json",
         {"mcpServers": {evil + "-a": server}},
     )
-    assert main([]) == 0
+    assert main(["--detail"]) == 0
     out = capsys.readouterr().out
     assert "\x1b" not in out and "\x07" not in out
     assert all(f"evilname-{suffix}" in out for suffix in ("o", "plugin", "p", "a"))
 
 
 def test_every_agent_is_listed_in_rank_order(machine, capsys):
-    assert main(["antigravity", "pi", "opencode", "codex", "claude-code"]) == 0
+    names = ["antigravity", "pi", "opencode", "codex", "claude-code"]
+    assert main([argument for name in names for argument in ("-a", name)]) == 0
     headers = [
         line.split()[0]
         for line in capsys.readouterr().out.splitlines()

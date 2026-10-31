@@ -140,7 +140,7 @@ def test_skills_and_extensions_match(machine_dirs, tmp_path, case):
     items = scan(tmp_path, home, project)
     loaded = {Status.ENABLED}
     our_skills = {i.name for i in items if i.kind is Kind.SKILL and i.status in loaded}
-    our_extensions = {i.name for i in items if i.kind is Kind.EXTENSION and i.status in loaded}
+    our_extensions = {i.name for i in items if i.kind is Kind.PLUGIN and i.status in loaded}
     assert our_skills == their_skills
     assert our_extensions == their_extensions
 

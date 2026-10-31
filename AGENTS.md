@@ -2,7 +2,7 @@
 
 This file provides guidance to coding agents when working with code in this repository. `CLAUDE.md` is a symlink to it.
 
-`agt-view` is a read-only CLI that lists the skills, MCP servers, and extensions each coding agent can use from the current directory. Requirements are in `docs/PRD.md`.
+`agt-view` is a read-only CLI that lists the skills, MCP servers, and plugins each coding agent can use from the current directory. Requirements are in `docs/PRD.md`.
 
 ## Commands
 
@@ -24,7 +24,7 @@ AGT_VIEW_CLAUDE=... AGT_VIEW_CODEX=... AGT_VIEW_OPENCODE=... AGT_VIEW_PI=... AGT
 
 ## Architecture
 
-`cli.py` runs every adapter in `adapters.ADAPTERS` (registry order is display order), marks skills shared between agents by real path, picks which agents to show, and passes them to `render.py`. `list` hides agents that aren't both installed and configured, while `show` searches every detected agent.
+`cli.py` runs every adapter in `adapters.ADAPTERS` (registry order is display order), marks skills shared between agents by real path, and passes what `filters.py` selects to `render.py`. It hides agents that aren't both installed and configured, unless `--all` or `-a` is used.
 
 Each adapter returns an `AgentReport`: install and config state, plus `Item`s (`model.py`). All agent-specific rules live in that adapter. Shared helpers are in `adapters/base.py` (reading config, building items), `skills.py` (scanning, with per-agent options for depth and hidden directories), `mcp.py` (safe server summaries), `frontmatter.py`, and `jsonc.py`.
 

@@ -15,11 +15,11 @@ from urllib.parse import unquote, urlsplit
 
 from agt_view.adapters.base import (
     Context,
-    extension_item,
     first_existing,
     list_entries,
     load_once,
     mcp_item,
+    plugin_item,
     read_json,
     skill_item,
     unique_roots,
@@ -249,7 +249,7 @@ class _PluginList:
         path: Path,
         key: str | None = None,
     ) -> None:
-        item = extension_item(self.agent, name, native_kind, scope, status, path)
+        item = plugin_item(self.agent, name, native_kind, scope, status, path)
         is_package = key is not None
         plugin_id = None if is_package else _plugin_id(path)
         self.plugins[key or os.path.realpath(path)] = _Plugin(item, plugin_id)
