@@ -24,7 +24,7 @@ AGT_VIEW_CLAUDE=... AGT_VIEW_CODEX=... AGT_VIEW_OPENCODE=... AGT_VIEW_PI=... AGT
 
 ## Architecture
 
-`cli.py` runs every adapter in `adapters.ADAPTERS` (registry order is display order), marks skills shared between agents by real path, picks which agents to show, and passes them to `render.py`.
+`cli.py` runs every adapter in `adapters.ADAPTERS` (registry order is display order), marks skills shared between agents by real path, picks which agents to show, and passes them to `render.py`. `list` hides agents that aren't both installed and configured, while `show` searches every detected agent.
 
 Each adapter returns an `AgentReport`: install and config state, plus `Item`s (`model.py`). All agent-specific rules live in that adapter. Shared helpers are in `adapters/base.py` (reading config, building items), `skills.py` (scanning, with per-agent options for depth and hidden directories), `mcp.py` (safe server summaries), `frontmatter.py`, and `jsonc.py`.
 

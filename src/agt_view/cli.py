@@ -10,9 +10,9 @@ from agt_view import __version__
 from agt_view.adapters import ADAPTERS
 from agt_view.adapters.base import Context
 from agt_view.model import AgentReport, Item, Kind, Scope
-from agt_view.render import clean, render_report
+from agt_view.render import clean, render_item, render_report
 
-_COMMANDS = {"list"}
+_COMMANDS = {"list", "show"}
 _TOP_LEVEL_FLAGS = {"-h", "--help", "--version"}
 
 
@@ -25,24 +25,30 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"agt-view {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    list_parser = commands.add_parser("list", help="list agents and their items")
-    list_parser.add_argument(
-        "--all", action="store_true", help="also show agents not both installed and configured"
-    )
-    list_parser.add_argument(
+    filters = argparse.ArgumentParser(add_help=False)
+    filters.add_argument(
         "--agent",
         action="append",
         choices=[adapter.id for adapter in ADAPTERS],
-        help="show only this agent, whatever its state (repeatable)",
+        help="only this agent (repeatable)",
     )
-    list_parser.add_argument(
+    filters.add_argument(
         "--kind", action="append", choices=[kind.value for kind in Kind], help="(repeatable)"
     )
-    list_parser.add_argument("--scope", choices=[scope.value for scope in Scope])
-    list_parser.add_argument(
+    filters.add_argument("--scope", choices=[scope.value for scope in Scope])
+    filters.add_argument(
         "--cwd", type=Path, help="project root to inspect (default: current directory)"
     )
-    list_parser.add_argument("--no-color", action="store_true")
+    filters.add_argument("--no-color", action="store_true")
+
+    list_parser = commands.add_parser("list", parents=[filters], help="list agents and their items")
+    list_parser.add_argument(
+        "--all", action="store_true", help="also show agents not both installed and configured"
+    )
+    show_parser = commands.add_parser(
+        "show", parents=[filters], help="show all details of an item, across every agent"
+    )
+    show_parser.add_argument("name", help="item name; a plugin can omit its @marketplace")
     return parser
 
 
@@ -126,6 +132,47 @@ def run_list(args: argparse.Namespace, context: Context, color: bool) -> None:
             print(f"warning: {report.agent}: {clean(warning)}", file=sys.stderr)
 
 
+def _matches(item: Item, name: str) -> bool:
+    if item.name == name:
+        return True
+    # `plugin@marketplace` can be asked for by its plugin name. `@org/x` is a whole name.
+    plugin, separator, _ = item.name.rpartition("@")
+    return item.kind is Kind.EXTENSION and bool(separator and plugin) and plugin == name
+
+
+def run_show(args: argparse.Namespace, context: Context, color: bool) -> int:
+    """Search all detected agents, even hidden ones: naming an item is an explicit request."""
+    reports = [adapter.scan(context) for adapter in ADAPTERS]
+    searched = [
+        report
+        for report in reports
+        if (report.agent in args.agent if args.agent else report.installed or report.configured)
+    ]
+    matches = [
+        (report, [i for i in _filtered(report, args.kind, args.scope) if _matches(i, args.name)])
+        for report in searched
+    ]
+    matches = [(report, items) for report, items in matches if items]
+    matched_reports = [report for report, _ in matches]
+    _mark_shared([report for report in reports if report.active or report in matched_reports])
+
+    blocks = [
+        render_item(report, item, home=context.home, cwd=context.cwd, color=color)
+        for report, items in matches
+        for item in items
+    ]
+    if blocks:
+        print("\n\n".join(blocks))
+    else:
+        print(f'agt-view: no item named "{clean(args.name)}"', file=sys.stderr)
+
+    # A broken config can be why nothing matched, so warn for every agent searched.
+    for report in searched:
+        for warning in report.warnings:
+            print(f"warning: {report.agent}: {clean(warning)}", file=sys.stderr)
+    return 0 if blocks else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(_with_default_command(sys.argv[1:] if argv is None else argv))
@@ -135,8 +182,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(f"--cwd is not a directory: {clean(str(args.cwd))}")
     context = Context(home=Path.home(), cwd=cwd, env=os.environ)
 
+    color = _use_color(args.no_color)
     try:
-        run_list(args, context, _use_color(args.no_color))
+        if args.command == "show":
+            return run_show(args, context, color)
+        run_list(args, context, color)
     except BrokenPipeError:
         # The reader closed the pipe, as with `| head`; stop quietly.
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())

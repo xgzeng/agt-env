@@ -88,6 +88,34 @@ def test_only_a_linked_skill_is_marked_not_a_linked_parent(machine, capsys, tmp_
     assert rows(run(capsys)[1])[0][6] == "~/.claude/skills/one"
 
 
+def test_long_path_is_shortened_in_the_middle(machine, capsys):
+    machine.install("claude")
+    skill = machine.home / ".claude" / "skills" / ("x" * 60) / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: long\ndescription: d\n---\n")
+    assert main([]) == 0
+    path = rows(capsys.readouterr().out)[0][6]
+    assert len(path) == 48
+    assert path.startswith("~/.claude/skill...") and path.endswith("x" * 20)
+
+
+def test_path_limit_leaves_the_symlink_mark_intact(machine, capsys, tmp_path):
+    machine.install("claude")
+    skills = machine.home / ".claude" / "skills"
+    skills.mkdir(parents=True)
+    (skills / ("y" * 60)).symlink_to(write_skill(tmp_path / "target", "name: long\ndescription: d"))
+    assert main([]) == 0
+    assert rows(capsys.readouterr().out)[0][6].endswith("yyy (symlink)")
+
+
+def test_show_keeps_the_full_path(machine, capsys):
+    machine.install("claude")
+    skill = machine.home / ".claude" / "skills" / ("x" * 60)
+    write_skill(skill, "name: long\ndescription: d")
+    assert main(["show", "long"]) == 0
+    assert f"~/.claude/skills/{'x' * 60}" in capsys.readouterr().out
+
+
 def test_agent_with_no_items(machine, capsys):
     claude(machine).mkdir()
     assert "no items" in run(capsys)[1]
@@ -180,8 +208,8 @@ def test_shared_skills_marked_under_each_agent(machine, capsys, tmp_path):
     write_skill(machine.home / ".codex" / "skills" / "solo")
     found = {(r[0], r[2]): r[5] for r in rows(run(capsys)[1])}
     assert found == {
-        ("claude-code", "common"): "codex",
-        ("codex", "common"): "claude-code",
+        ("claude-code", "common"): "yes",
+        ("codex", "common"): "yes",
         ("codex", "solo"): "-",
     }
 

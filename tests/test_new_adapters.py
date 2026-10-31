@@ -803,8 +803,8 @@ def test_skill_shared_between_new_and_old_agents(machine, capsys, tmp_path):
     assert main([]) == 0
     out = capsys.readouterr().out
     # OpenCode reads Claude Code's directory and shares ~/.agents/skills with Pi.
-    assert "opencode" in next(line for line in out.splitlines() if "common" in line)
-    assert "pi" in next(line for line in out.splitlines() if " both " in line)
+    assert " yes " in next(line for line in out.splitlines() if " common " in line)
+    assert " yes " in next(line for line in out.splitlines() if " both " in line)
 
 
 def test_override_note_only_when_the_override_is_what_was_found(

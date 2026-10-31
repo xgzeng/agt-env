@@ -9,8 +9,18 @@ from agt_view.model import AgentReport, Item, Status
 _ESCAPE_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\^_][^\x1b]*(?:\x1b\\)?|.)?"
 )
-_COLUMNS = ("KIND", "NAME", "SCOPE", "STATUS", "SHARED WITH", "PATH")
+_COLUMNS = ("KIND", "NAME", "SCOPE", "STATUS", "SHARED", "PATH")
+_MAX_LIST_PATH_LENGTH = 48
+_ELLIPSIS = "..."
 _BOLD, _RED, _DIM, _RESET = "\x1b[1m", "\x1b[31m", "\x1b[2m", "\x1b[0m"
+_DETAIL_LABELS = {
+    "transport": "Transport",
+    "command": "Command",
+    "url": "URL",
+    "env": "Env names",
+    "headers": "Header names",
+    "version": "Version",
+}
 
 
 def clean(text: str) -> str:
@@ -31,8 +41,19 @@ def display_path(path: Path, *, home: Path, cwd: Path) -> str:
     return str(path)
 
 
-def item_path(item: Item, *, home: Path, cwd: Path) -> str:
-    path = display_path(item.source_path, home=home, cwd=cwd)
+def _shorten_middle(text: str, limit: int) -> str:
+    """Cut the middle, keeping more of the end, which names the item."""
+    if len(text) <= limit:
+        return text
+    kept = limit - len(_ELLIPSIS)
+    start = kept // 3
+    return f"{text[:start]}{_ELLIPSIS}{text[start - kept :]}"
+
+
+def item_path(item: Item, *, home: Path, cwd: Path, limit: int | None = None) -> str:
+    path = clean(display_path(item.source_path, home=home, cwd=cwd))
+    if limit is not None:
+        path = _shorten_middle(path, limit)
     return f"{path} (symlink)" if item.is_symlink else path
 
 
@@ -44,6 +65,15 @@ def header(report: AgentReport, *, home: Path, cwd: Path) -> str:
     if report.configured:
         return f"not installed, configured at {location}"
     return f"{'installed' if report.installed else 'not installed'}, not configured"
+
+
+def _status_text(status: Status, width: int, color: bool) -> str:
+    text = clean(status).ljust(width)
+    if color and status is Status.BROKEN:
+        return f"{_RED}{text}{_RESET}"
+    if color and status is not Status.ENABLED:
+        return f"{_DIM}{text}{_RESET}"
+    return text
 
 
 def render_report(
@@ -62,8 +92,8 @@ def render_report(
             clean(item.name),
             clean(item.scope),
             clean(item.status),
-            clean(", ".join(item.shared_with)) or "-",
-            clean(item_path(item, home=home, cwd=cwd)),
+            "yes" if item.shared_with else "-",
+            item_path(item, home=home, cwd=cwd, limit=_MAX_LIST_PATH_LENGTH),
         )
         for item in items
     ]
@@ -71,12 +101,40 @@ def render_report(
 
     def format_row(row: tuple[str, ...], item: Item | None = None) -> str:
         cells = [cell.ljust(width) for cell, width in zip(row, widths)]
-        if color and item and item.status is Status.BROKEN:
-            cells[3] = f"{_RED}{cells[3]}{_RESET}"
-        elif color and item and item.status is not Status.ENABLED:
-            cells[3] = f"{_DIM}{cells[3]}{_RESET}"
+        if item:
+            cells[3] = _status_text(item.status, widths[3], color)
         return ("  " + "  ".join(cells)).rstrip()
 
     lines.append(format_row(_COLUMNS))
     lines.extend(format_row(row, item) for row, item in zip(rows, items))
+    return "\n".join(lines)
+
+
+def render_item(report: AgentReport, item: Item, *, home: Path, cwd: Path, color: bool) -> str:
+    """Show everything known about one item. Fields with no value are left out."""
+    title = f"{clean(item.name)}  ({clean(item.kind)}, {clean(report.agent)})"
+    fields: list[tuple[str, str]] = []
+    if item.native_kind != item.kind:
+        fields.append(("Agent's term", clean(item.native_kind)))
+    fields.append(("Scope", clean(item.scope)))
+    fields.append(("Status", _status_text(item.status, 0, color)))
+    if not report.active:
+        fields.append(("Agent", clean(header(report, home=home, cwd=cwd))))
+    if item.description:
+        fields.append(("Description", clean(item.description)))
+    fields.append(("Path", item_path(item, home=home, cwd=cwd)))
+    if item.resolved_path != item.source_path:
+        fields.append(("Real path", clean(display_path(item.resolved_path, home=home, cwd=cwd))))
+    if item.shared_with:
+        fields.append(("Shared with", clean(", ".join(item.shared_with))))
+    for key, label in _DETAIL_LABELS.items():
+        value = item.details.get(key)
+        if isinstance(value, list):
+            value = ", ".join(str(entry) for entry in value)
+        if value:
+            fields.append((label, clean(str(value))))
+
+    width = max(len(label) for label, _ in fields) + 1
+    lines = [f"{_BOLD}{title}{_RESET}" if color else title]
+    lines.extend(f"  {f'{label}:'.ljust(width)}  {value}" for label, value in fields)
     return "\n".join(lines)

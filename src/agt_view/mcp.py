@@ -7,7 +7,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 def stdio_details(command: object, env_names: object = None) -> dict[str, object]:
     """Describe a local server. Arguments are left out: they can carry credentials."""
-    return {"transport": "stdio", "command": command, "env": _names(env_names)}
+    safe_command = without_credentials(command) if isinstance(command, str) else command
+    return {"transport": "stdio", "command": safe_command, "env": _names(env_names)}
 
 
 def remote_details(transport: str, url: object, header_names: object = None) -> dict[str, object]:
