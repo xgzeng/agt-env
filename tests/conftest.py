@@ -1,14 +1,65 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 SCOPE_WORDS = {"P": "project", "U": "user", "S": "system"}
+ENTRY_POINT = "from agt_view.cli import main; raise SystemExit(main())"
 
 
 def write_skill(directory: Path, frontmatter: str = "description: does a thing") -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "SKILL.md").write_text(f"---\n{frontmatter}\n---\nBody text\n")
     return directory
+
+
+def _spawn_env(machine, extra):
+    env = {"HOME": str(machine.home), "PATH": str(machine.bin), "TERM": "xterm", **extra}
+    if "PYTHONPATH" in os.environ:
+        env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+    return env
+
+
+def run_on_terminal(machine, *args, code=ENTRY_POINT, env=None):
+    """Run in a new process on a real terminal, and return what it printed."""
+    pty = pytest.importorskip("pty")
+    leader, follower = pty.openpty()
+    process = subprocess.Popen(
+        [sys.executable, "-c", code, *args],
+        cwd=machine.project,
+        env=_spawn_env(machine, {"PYTHONUTF8": "1", **(env or {})}),
+        stdin=subprocess.DEVNULL,
+        stdout=follower,
+        stderr=subprocess.DEVNULL,
+    )
+    os.close(follower)
+    chunks = []
+    while True:
+        try:
+            chunk = os.read(leader, 65536)
+        except OSError:  # Linux reports the closed terminal this way.
+            break
+        if not chunk:
+            break
+        chunks.append(chunk)
+    os.close(leader)
+    assert process.wait() == 0
+    return b"".join(chunks).decode().replace("\r\n", "\n")
+
+
+def run_piped(machine, *args, code=ENTRY_POINT, env=None):
+    """Run in a new process with its output piped, and return what it printed."""
+    return subprocess.run(
+        [sys.executable, "-c", code, *args],
+        cwd=machine.project,
+        env=_spawn_env(machine, env or {}),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
 
 
 @pytest.fixture

@@ -14,6 +14,7 @@ uv run --isolated --python 3.11 --group dev pytest    # oldest supported Python
 uvx ruff format                  # format; configured in pyproject.toml
 uvx ruff check                   # lint
 uvx --from actionlint-py actionlint .github/workflows/*.yml
+uv build && uv run --no-project scripts/check_wheel.py dist/*.whl    # the built wheel, as a new user runs it
 ```
 
 Real-agent comparison tests run only when given a binary, and always use a temporary `HOME`. Pass the real binary, because a version-manager shim may not work in a temporary `HOME` (with mise, use `mise which codex`):
@@ -33,7 +34,7 @@ Adapters are independent of each other. The same directory can be scanned by sev
 ## Rules that span the code
 
 - **Default commands only read files.** They never run agent binaries, start MCP servers, or load plugins. `shutil.which` is the only install check.
-- **Secret values must never reach an `Item`.** MCP `details` come from `mcp.py`, which keeps env and header names only, drops arguments, and strips URL credentials and queries. Plugin and package names go through `without_credentials`.
+- **Secret values must never reach an `Item`.** MCP `details` come from `mcp.py`, which keeps env and header names only, drops arguments, and strips URL credentials and queries. Plugin and package names go through `without_credentials`. Credential stores are never opened, and `skills.py` won't follow a skill file's symlink to a non-Markdown file. `tests/test_safety.py` checks this, and that nothing is written, by auditing what a real run opens; add new credential locations there and to `docs/agents/README.md`.
 - **Inspected text is untrusted.** Everything printed goes through `render_plain.clean()`, and reaches Rich only as a `Text`, because Rich parses plain strings as markup. Files are read with a size limit, and non-regular files aren't opened.
 - **Status needs evidence.** Use `unknown` rather than guessing `enabled`, and `pending` when an item waits on user approval or trust. A config file that can't be read gives a warning and `unknown`, and must not affect other agents.
 - **The current directory, or `--project`, is the project root.** Parent directories aren't searched, even for agents that search them.
@@ -54,6 +55,8 @@ OpenCode's comparison tests start a background service, so they give it its own 
 - Don't change the document version in the PRD unless asked.
 
 ## Releasing
+
+Before tagging, run the real-agent comparison tests above, because CI doesn't have the agents.
 
 The version is in both `pyproject.toml` and `src/agt_view/__init__.py`, and `uv.lock` must be refreshed with `uv lock`. The workflows only check the tag against `pyproject.toml`.
 

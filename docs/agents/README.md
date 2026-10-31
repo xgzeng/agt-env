@@ -34,6 +34,22 @@ Some directories are read by more than one agent. This answers the PRD's open qu
 | `~/.claude/skills` | Yes | No (not documented) | Yes | No (not documented) | No (not listed by `/skills`) |
 | `.claude/skills` | Yes | No (not documented) | Yes | No (not documented) | No (not documented) |
 
+## Credential stores
+
+`agt-view` never opens these, and `tests/test_safety.py` plants each one and audits what a run opens.
+
+| Agent | File | Evidence |
+|---|---|---|
+| Claude Code | `~/.claude/.credentials.json` | Tested |
+| Codex | `~/.codex/auth.json` | Tested |
+| OpenCode | `~/.local/share/opencode/auth.json`, `~/.config/opencode/auth.json` | Assumed |
+| Pi | `~/.pi/agent/auth.json` | Assumed |
+| Antigravity CLI | `~/.gemini/oauth_creds.json`, `~/.gemini/google_accounts.json`, `~/.gemini/antigravity-cli/oauth_creds.json` | Assumed |
+
+Tested means the file was seen on a signed-in machine, by name only. Assumed locations are the usual ones for that agent, and they may be wrong. Adapters only open the config files their pages list, so a wrong location here doesn't change what is read.
+
+For every agent, a skill file that is a symlink to anything but a Markdown file isn't opened, and the skill is reported as `broken`. This is `agt-view`'s own rule, not the agent's: an agent may still load that file. Without it, a link in a cloned repository could print any file, because Claude Code's descriptions can come from a skill's text.
+
 ## Reproducing the tests
 
 The real-agent comparison tests run only when pointed at a binary, and always use a temporary `HOME`:

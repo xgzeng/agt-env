@@ -1,12 +1,10 @@
 import io
 import json
-import os
 import re
-import subprocess
 import sys
 
 import pytest
-from conftest import write_skill
+from conftest import run_on_terminal, run_piped, write_skill
 from rich.cells import cell_len
 from rich.console import Console
 
@@ -309,51 +307,6 @@ def test_when_rich_is_used(monkeypatch, flag, env, stdout, expected):
     assert cli._use_rich(flag) is expected
 
 
-def spawn_env(machine, **extra):
-    env = {"HOME": str(machine.home), "PATH": str(machine.bin), "TERM": "xterm", **extra}
-    if "PYTHONPATH" in os.environ:
-        env["PYTHONPATH"] = os.environ["PYTHONPATH"]
-    return env
-
-
-def run_on_terminal(machine, *args):
-    pty = pytest.importorskip("pty")
-    leader, follower = pty.openpty()
-    process = subprocess.Popen(
-        [sys.executable, "-c", "from agt_view.cli import main; raise SystemExit(main())", *args],
-        cwd=machine.project,
-        env=spawn_env(machine, PYTHONUTF8="1"),
-        stdin=subprocess.DEVNULL,
-        stdout=follower,
-        stderr=subprocess.DEVNULL,
-    )
-    os.close(follower)
-    chunks = []
-    while True:
-        try:
-            chunk = os.read(leader, 65536)
-        except OSError:  # Linux reports the closed terminal this way.
-            break
-        if not chunk:
-            break
-        chunks.append(chunk)
-    os.close(leader)
-    assert process.wait() == 0
-    return b"".join(chunks).decode().replace("\r\n", "\n")
-
-
-def run_piped(machine, *args):
-    return subprocess.run(
-        [sys.executable, "-c", "from agt_view.cli import main; raise SystemExit(main())", *args],
-        cwd=machine.project,
-        env=spawn_env(machine),
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-
-
 @pytest.fixture
 def real_machine(machine):
     machine.install("claude")
@@ -375,19 +328,14 @@ def test_no_color_on_a_terminal_matches_piped_output(real_machine, args):
 
 
 def test_plain_output_does_not_load_rich(real_machine):
-    code = (
-        "import sys\n"
-        "from agt_view.cli import main\n"
-        "main(['--no-color'])\n"
-        "assert not any(name.split('.')[0] == 'rich' for name in sys.modules)\n"
-    )
-    subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=real_machine.project,
-        env=spawn_env(real_machine),
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        check=True,
+    run_piped(
+        real_machine,
+        code=(
+            "import sys\n"
+            "from agt_view.cli import main\n"
+            "main(['--no-color'])\n"
+            "assert not any(name.split('.')[0] == 'rich' for name in sys.modules)\n"
+        ),
     )
 
 

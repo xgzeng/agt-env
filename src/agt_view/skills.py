@@ -111,6 +111,11 @@ def read_skill(path: Path, warnings: list[str]) -> FoundSkill:
 
 
 def _load(skill: FoundSkill, warnings: list[str]) -> None:
+    # A description can come from a skill file's text, so a link in a cloned repository could
+    # otherwise print a key or token from any file it names. The skill stays broken.
+    if not os.path.realpath(skill.skill_file).lower().endswith(".md"):
+        warnings.append(f"not reading {skill.skill_file}: it links to a non-Markdown file")
+        return
     try:
         with open(skill.skill_file, "rb") as file:
             text = file.read(_MAX_READ_BYTES).decode("utf-8", errors="replace")

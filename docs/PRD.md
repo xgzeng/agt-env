@@ -170,7 +170,7 @@ Every item has these fields, and adapters must fill them consistently:
 ### 5.5 Safety
 
 - **FR-11 (P0):** Never modify files in agent config directories or anywhere else.
-- **FR-12 (P0):** Never display secret values in any output. Env values, header values, tokens, and URL credentials are omitted or masked. Files an adapter identifies as agent credential stores are never opened.
+- **FR-12 (P0):** Never display secret values in any output. Env values, header values, tokens, and URL credentials are omitted or masked. Agent credential stores are never opened. A skill file that is a symlink to anything but a Markdown file isn't opened, and the skill is reported as `broken`, because a skill's text can become its description and a cloned repository could otherwise display any file.
 - **FR-13 (P0):** Never run code from inspected configuration. Listing an MCP server must not start it, because a repository's project config can name any command.
 - **FR-14 (P2):** `probe` is the only command that may run other programs. It must be explicitly invoked, apply a timeout per agent, and show what it will execute.
 - **FR-15 (P0):** Treat inspected file contents as untrusted. Strip terminal escape sequences from names and descriptions before display.
@@ -221,7 +221,7 @@ The ranking can change without affecting the architecture.
 
 | Area | Requirement |
 |---|---|
-| **Performance** | `agt-view` finishes in under 200 ms on a reference fixture of 10 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
+| **Performance** | The default listing finishes in under 200 ms, in plain and terminal output, on a reference fixture of 5 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
 | **Distribution** | Published to PyPI and runnable with `uvx agt-view`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical; Rich is used for terminal output, and plain output doesn't load it |
 | **Portability** | Linux and macOS, on any home directory layout, shell, or version manager |
 | **Extensibility** | A new adapter touches only its own module, fixtures, and one registry line |
@@ -230,11 +230,11 @@ The ranking can change without affecting the architecture.
 
 ## 8. Success metrics
 
-These are acceptance checks, all run against fixtures in CI:
+These are acceptance checks, run against fixtures in CI, except where noted:
 
-1. **Accuracy:** for each P0 agent, MCP results match that agent's own listing command on the same fixture, wherever such a command exists.
+1. **Accuracy:** for each P0 agent, MCP results match that agent's own listing command on the same fixture, wherever such a command exists. This needs the real agents, and some need a signed-in account, so it runs by hand before each release rather than in CI.
 2. **No false claims:** no item is reported as `enabled` without evidence in that agent's config.
-3. **Secret safety:** a test config with planted secrets produces no secret text in any command's output.
+3. **Secret safety:** a test config with planted secrets produces no secret text in any command's output, planted credential stores are never opened, and no file changes.
 4. **Inertness:** a test project config naming a marker-writing command leaves no marker after any P0 command.
 5. **Resilience:** corrupting any single agent's config still produces full results for the others, with exit code 0 and a warning.
 6. **Clean start:** with an empty `HOME` and no agents on `PATH`, `agt-view` exits 0 with a clear message.

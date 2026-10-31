@@ -51,12 +51,13 @@ def _cells(item: Item) -> tuple[Text, Text, Text]:
     )
 
 
-def _row(cells: Iterable[Text], widths: list[int]) -> Table:
-    """One line of the table. Rich has no column spans, so rows are aligned by fixed widths."""
+def _rows(rows: Iterable[Iterable[Text]], widths: list[int]) -> Table:
+    """Lines of the table. Rich has no column spans, so tables line up through fixed widths."""
     table = Table.grid(padding=(0, _COLUMN_GAP, 0, 0))
     for width in widths:
         table.add_column(width=width, overflow="fold")
-    table.add_row(*cells)
+    for cells in rows:
+        table.add_row(*cells)
     return table
 
 
@@ -94,17 +95,19 @@ def _items(
             rows = [(*row, text) for row, text in zip(rows, cut)]
 
     separator = Rule(style="dim")
-    lines: list[RenderableType] = [_row(heads, widths)]
+    lines: list[RenderableType] = [_rows([heads], widths)]
     if not detail:
-        lines.append(separator)
+        return [*lines, separator, _rows(rows, widths)]
+    # Details start at the NAME column.
+    indent = widths[0] + _COLUMN_GAP
     for row, item in zip(rows, items):
-        if detail:
-            lines.append(separator)
-        lines.append(_row(row, widths))
-        if detail:
-            # Details start at the NAME column.
-            indent = widths[0] + _COLUMN_GAP
-            lines.append(_details(item, home=home, cwd=cwd, indent=indent))
+        lines.extend(
+            [
+                separator,
+                _rows([row], widths),
+                _details(item, home=home, cwd=cwd, indent=indent),
+            ]
+        )
     return lines
 
 

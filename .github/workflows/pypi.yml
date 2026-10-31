@@ -30,14 +30,15 @@ jobs:
             exit 1
           fi
 
+      # The speed test runs in CI instead: a slow runner shouldn't stop a release.
       - name: Run tests
-        run: uv run --python 3.11 pytest
+        run: uv run --python 3.11 pytest --ignore=tests/test_speed.py
 
       - name: Build
         run: uv build
 
-      - name: Check the built package runs
-        run: uvx --isolated --from "$(echo dist/*.whl)" agt-view --version
+      - name: Check the built package from a clean environment
+        run: uv run --no-project scripts/check_wheel.py dist/*.whl
 
       - uses: actions/upload-artifact@v7.0.2
         with:

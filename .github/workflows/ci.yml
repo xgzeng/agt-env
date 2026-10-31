@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v10.3.3
+
+      - name: Check formatting
+        run: uvx ruff format --check
+
+      - name: Lint
+        run: uvx ruff check
+
+      - name: Lint workflows
+        run: uvx --from actionlint-py actionlint .github/workflows/*.yml
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.14"]
+    runs-on: ${{ matrix.os }}
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v10.3.3
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Build
+        run: uv build
+
+      - name: Check the built package from a clean environment
+        run: uv run --no-project scripts/check_wheel.py dist/*.whl
