@@ -1,6 +1,6 @@
 [project]
 name = "agt-view"
-version = "0.0.1"
+version = "0.0.2"
 description = "List the skills, MCP servers, and extensions available to each coding agent"
 readme = "README.md"
 license = "MIT"
