@@ -43,8 +43,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.3.3
 
+      # macOS runners vary too much for a time limit: a faster build once measured slower.
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest ${{ runner.os == 'macOS' && '--ignore=tests/test_speed.py' || '' }}
 
       - name: Build
         run: uv build
