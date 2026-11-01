@@ -20,6 +20,8 @@ uvx agt-view "browser test" lint        # search all fields: (browser and test) 
 
 Output is plain text when piped, or with `--no-color` or `NO_COLOR`.
 
+Problems are shown with the items they affect: why an item is `broken`, and when a same-named item is used instead (`shadowed`). Search for them like anything else, as in `uvx agt-view shadowed`.
+
 ## Development
 
 ```sh

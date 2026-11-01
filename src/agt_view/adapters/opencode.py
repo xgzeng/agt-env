@@ -18,6 +18,7 @@ from agt_view.adapters.base import (
     first_existing,
     list_entries,
     load_once,
+    mark_shadowed,
     mcp_item,
     plugin_item,
     read_json,
@@ -25,7 +26,7 @@ from agt_view.adapters.base import (
     unique_roots,
 )
 from agt_view.mcp import remote_details, stdio_details, without_credentials
-from agt_view.model import AgentReport, Item, Kind, Scope, Status
+from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
 from agt_view.skills import (
     SKILL_FILE,
     FoundSkill,
@@ -108,9 +109,11 @@ class OpenCode:
         for layer in layers:
             roots += [(layer.scope, path) for path in _configured_skill_paths(layer, context.cwd)]
         compatibility_skills: list[Item] = []
+        skills_by_root: dict[Path, list[Item]] = {}
         for scope, root in unique_roots(roots):
             found = _skills_in_source(root, report.warnings)
             items = [skill_item(self.id, skill, scope, status.of(skill)) for skill in found]
+            skills_by_root[root] = items
             report.items.extend(items)
             if (scope, root) in compatibility_roots:
                 compatibility_skills.extend(items)
@@ -131,6 +134,30 @@ class OpenCode:
             plugins.apply_config(layer)
         report.items.extend(plugins.items())
         _apply_built_in_removals(report.items, compatibility_skills, plugins)
+
+        loaded = {id(item) for item in report.items}
+        ranked: list[Item] = []
+        for root in [
+            *[
+                path
+                for layer in reversed(layers)
+                for path in reversed(_configured_skill_paths(layer, context.cwd))
+            ],
+            project_dir / "skills",
+            project_dir / "skill",
+            *[directory / "skills" for directory in reversed(user_dirs)],
+            *[directory / "skill" for directory in reversed(user_dirs)],
+            context.cwd / ".agents" / "skills",
+            context.home / ".agents" / "skills",
+            context.cwd / ".claude" / "skills",
+            context.home / ".claude" / "skills",
+        ]:
+            ranked.extend(
+                _in_source_precedence(
+                    [item for item in skills_by_root.pop(root, []) if id(item) in loaded]
+                )
+            )
+        mark_shadowed(ranked, key=_skill_id)
         return report
 
     def _layers(
@@ -184,16 +211,20 @@ class OpenCode:
     def _servers(self, layers: list[_Layer], reliable: bool) -> list[Item]:
         """Combine servers across layers. A later valid entry replaces an earlier one."""
         winners: dict[str, tuple[object, _Layer]] = {}
+        replaced: dict[str, Path] = {}
         for layer in layers:
             for name, entry in _server_entries(layer.data).items():
                 if name not in winners or _server_details(entry) is not None:
+                    if name in winners:
+                        replaced[name] = winners[name][1].path
                     winners[name] = (entry, layer)
         items = []
         for name, (entry, layer) in winners.items():
             status = _server_status(entry, layer.data, reliable)
-            items.append(
-                mcp_item(self.id, name, _server_details(entry), layer.scope, status, layer.path)
-            )
+            item = mcp_item(self.id, name, _server_details(entry), layer.scope, status, layer.path)
+            if name in replaced:
+                item.findings.append(Finding("overrides the entry in", replaced[name]))
+            items.append(item)
         return items
 
 
@@ -341,6 +372,19 @@ def _plugin_id(path: Path) -> str | None:
         return None
     match = _PLUGIN_ID.search(text)
     return match[1] if match else None
+
+
+def _skill_id(item: Item) -> str:
+    """OpenCode matches skills by directory or file name, not by the `name` field."""
+    path = item.source_path
+    return path.stem if path.suffix == ".md" else path.name
+
+
+def _in_source_precedence(items: list[Item]) -> list[Item]:
+    """In one source, a directory beats a same-named file, and a later directory beats an earlier."""
+    files = [item for item in items if item.source_path.suffix == ".md"]
+    directories = [item for item in items if item.source_path.suffix != ".md"]
+    return [*reversed(directories), *reversed(files)]
 
 
 def _skills_in_source(root: Path, warnings: list[str]) -> list[FoundSkill]:

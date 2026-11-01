@@ -17,7 +17,14 @@ from rich.table import Table
 from rich.text import Text
 
 from agt_view.model import AgentReport, Item, Kind, Scope, Status
-from agt_view.render_plain import COLUMNS, clean, detail_fields, header, scope_letter
+from agt_view.render_plain import (
+    COLUMNS,
+    clean,
+    detail_fields,
+    finding_text,
+    header,
+    scope_letter,
+)
 
 _STATUS_MARKS = {
     Status.ENABLED: ("●", "green"),
@@ -25,6 +32,7 @@ _STATUS_MARKS = {
     Status.PENDING: ("◐", "yellow"),
     Status.BROKEN: ("✖", "bold red"),
     Status.UNKNOWN: ("?", "yellow"),
+    Status.SHADOWED: ("◌", "yellow"),
 }
 _SCOPE_STYLES = {Scope.PROJECT: "magenta", Scope.USER: "cyan", Scope.SYSTEM: "blue"}
 _COLUMN_GAP = 2
@@ -81,8 +89,17 @@ def _details(item: Item, *, home: Path, cwd: Path, indent: int) -> Padding:
     table.add_column(no_wrap=True)
     table.add_column(overflow="fold")
     for label, value in detail_fields(item, home=home, cwd=cwd):
-        table.add_row(Text(label, style="dim"), Text(value))
+        table.add_row(Text(label, style="yellow" if label == "Finding" else "dim"), Text(value))
     return Padding(table, (0, 0, 0, indent))
+
+
+def _findings(item: Item, *, home: Path, cwd: Path, indent: int) -> Padding:
+    style = "bold red" if item.status is Status.BROKEN else "bold yellow"
+    lines = [
+        Text.assemble(("! ", style), finding_text(finding, home=home, cwd=cwd), overflow="fold")
+        for finding in item.findings
+    ]
+    return Padding(Group(*lines), (0, 0, 0, indent))
 
 
 def _items(
@@ -111,10 +128,20 @@ def _items(
 
     separator = Rule(style="dim")
     lines: list[RenderableType] = [_rows([heads], widths, width)]
-    if not detail:
-        return [*lines, separator, _rows(rows, widths, width)]
-    # Details start at the NAME column.
+    # Details and findings start at the NAME column.
     indent = widths[0] + _COLUMN_GAP
+    if not detail:
+        lines.append(separator)
+        pending: list[tuple[Text, ...]] = []
+        for row, item in zip(rows, items):
+            pending.append(row)
+            if item.findings:
+                lines.append(_rows(pending, widths, width))
+                lines.append(_findings(item, home=home, cwd=cwd, indent=indent))
+                pending = []
+        if pending:
+            lines.append(_rows(pending, widths, width))
+        return lines
     for row, item in zip(rows, items):
         lines.extend(
             [

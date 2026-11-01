@@ -98,6 +98,46 @@ def test_mcp_matches_claude_listing(tmp_path, trusted):
     assert theirs and ours == theirs
 
 
+def test_mcp_precedence_matches_claude_listing(tmp_path):
+    home, project = tmp_path / "home", tmp_path / "project"
+    (home / ".claude").mkdir(parents=True)
+    project.mkdir()
+    (home / ".claude.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {name: STDIO for name in ("all", "approved", "pending", "user-only")},
+                "projects": {
+                    str(project): {
+                        "hasTrustDialogAccepted": True,
+                        "mcpServers": {"all": {"command": "/bin/false"}},
+                        "enabledMcpjsonServers": ["approved"],
+                    }
+                },
+            }
+        )
+    )
+    (project / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    name: {"command": "/bin/echo"} for name in ("all", "approved", "pending")
+                }
+            }
+        )
+    )
+    theirs = {}
+    for line in claude(home, project, "mcp", "list").splitlines():
+        if " - " in line and ": " in line:
+            name, rest = line.split(": ", 1)
+            theirs[name] = rest.split(" - ")[0].strip()
+    ours = {
+        item.name: item.details["command"]
+        for item in scan(tmp_path, home, project)
+        if item.kind is Kind.MCP and item.status is Status.ENABLED
+    }
+    assert ours == theirs
+
+
 def test_rejected_project_server_is_disabled(tmp_path):
     home, project = tmp_path / "home", tmp_path / "project"
     (home / ".claude").mkdir(parents=True)

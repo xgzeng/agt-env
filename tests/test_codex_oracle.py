@@ -161,3 +161,57 @@ enabled = false
     for name, server in theirs.items():
         assert (loaded[name].status is Status.ENABLED) is server["enabled"]
         assert loaded[name].details["transport"] == server["transport"]["type"]
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+def test_mcp_precedence_matches_codex_listing(tmp_path):
+    home, project = tmp_path / "home", tmp_path / "project"
+    (home / ".codex").mkdir(parents=True)
+    (project / ".codex").mkdir(parents=True)
+    (home / ".codex" / "config.toml").write_text(
+        f"""
+[mcp_servers.both]
+command = "/bin/true"
+[mcp_servers.off-in-user]
+command = "/bin/true"
+enabled = false
+[mcp_servers.off-in-project]
+command = "/bin/true"
+[mcp_servers.on-again]
+command = "/bin/true"
+enabled = false
+[mcp_servers.env-only]
+command = "/bin/true"
+[mcp_servers.user-only]
+command = "/bin/true"
+[projects."{project}"]
+trust_level = "trusted"
+"""
+    )
+    (project / ".codex" / "config.toml").write_text(
+        """
+[mcp_servers.both]
+command = "/bin/false"
+[mcp_servers.off-in-user]
+command = "/bin/false"
+[mcp_servers.off-in-project]
+command = "/bin/false"
+enabled = false
+[mcp_servers.on-again]
+enabled = true
+[mcp_servers.env-only.env]
+FROM_PROJECT = "1"
+"""
+    )
+    theirs = codex_mcp_servers(home, project)
+    report = Codex().scan(
+        Context(home=home, cwd=project, env={"PATH": ""}, system_root=tmp_path / "system")
+    )
+    ours = {
+        item.name: (item.status is Status.ENABLED, item.details["command"])
+        for item in report.items
+        if item.kind is Kind.MCP and item.status is not Status.SHADOWED
+    }
+    assert ours == {
+        name: (server["enabled"], server["transport"]["command"]) for name, server in theirs.items()
+    }

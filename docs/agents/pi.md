@@ -22,6 +22,8 @@ The docs are in the [Pi repository](https://github.com/earendil-works/pi), and a
 | User settings are `settings.json` there, and project settings are `.pi/settings.json` | Doc + Tested |
 | Project settings override user settings, and resource lists are combined | Doc |
 | Resource lists take paths, `!glob` to exclude, `+path` to include, and `-path` to exclude | Doc, Tested for `!glob` |
+| An exclusion only applies to skills and extensions of the scope whose settings list it | Tested |
+| `!**/name/**` excludes a skill, because it also matches the file inside | Tested |
 
 ## Project trust
 
@@ -42,7 +44,10 @@ The docs are in the [Pi repository](https://github.com/earendil-works/pi), and a
 | Directories containing `SKILL.md` are discovered recursively | Doc + Tested |
 | Malformed `SKILL.md` files and skills without descriptions aren't loaded | Doc + Tested |
 | A name needn't match its directory | Doc + Tested |
-| On a name conflict, the first skill found is kept, with a warning | Doc |
+| On a name conflict, one skill is kept, with a warning | Doc |
+| Precedence from highest is project-listed paths, `.pi/skills`, project `.agents/skills`, user-listed paths, `<agent-dir>/skills`, then `~/.agents/skills` | Tested |
+| Skills conflict by `name`, not directory. Within one source, the later directory wins | Tested |
+| An invalid or excluded skill doesn't take the name, so the next one loads | Tested |
 | The `skills` setting adds paths and exclusions | Doc, Tested for exclusions |
 | Some standalone Markdown skills are accepted | Doc + Tested |
 
@@ -55,6 +60,7 @@ The docs are in the [Pi repository](https://github.com/earendil-works/pi), and a
 | `enabled: false` keeps an entry without connecting to it | Doc + Tested |
 | An entry with neither `command` nor `url` is a config error | Doc + Tested |
 | A project entry with no `command`, `url`, or `type` only overrides `enabled`, `exposure`, and `toolExposure` of the same-named user server | Doc |
+| A project entry with a transport replaces the whole user entry, even when it has `enabled: false`, and doesn't inherit `enabled` from it | Tested |
 | `-builtin:mcp` in the `extensions` setting turns off built-in MCP support | Doc |
 
 ## Extensions and packages

@@ -35,7 +35,7 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 | All frontmatter is optional. `name` defaults to the directory name, and `description` to the first non-empty body line | Doc |
 | If the frontmatter's YAML doesn't parse, the skill still loads with no fields set | Doc |
 | Names containing `<`, `>`, zero-width, or control characters are refused, as are `anthropic-skills` and `anthropic-skills:*` outside a plugin | Doc |
-| On a name conflict, enterprise beats personal, and personal beats project | Doc |
+| On a name conflict, enterprise beats personal, and personal beats project. `agt-view` reports the loser as `shadowed` | Doc |
 | `skillOverrides: "off"` hides a skill. `"name-only"` and `"user-invocable-only"` keep it in the `/` menu. Plugin skills aren't affected | Doc |
 | A `permissions.deny` rule of `Skill`, `Skill(name)`, or `Skill(name *)` blocks skills | Doc |
 
@@ -50,7 +50,8 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 | When `managed-mcp.json` exists, only managed servers load | Doc |
 | An entry with no `type` is stdio. One with a `url` but no `type` is skipped with an error | Doc + Tested |
 | `type` can be `stdio`, `http`, `streamable-http`, `sse`, or `ws`. `sdk` entries are skipped | Doc |
-| Precedence is local, project, user, plugin, then claude.ai connectors. The whole entry from the winning source is used | Doc + Tested |
+| Precedence is local, project, user, plugin, then claude.ai connectors. The whole entry from the winning source is used. `agt-view` reports the loser as `shadowed` | Doc + Tested |
+| A project server waiting for approval doesn't replace the user's server | Tested |
 | `disabledMcpServers` in the project's `.claude.json` entry turns off user and local servers there | Doc + Tested |
 | Project servers wait for approval until `enabledMcpjsonServers` or `enableAllProjectMcpServers` applies | Doc + Tested |
 | Approvals in project settings count only once the folder is trusted. Approvals in user settings always count | Doc + Tested |

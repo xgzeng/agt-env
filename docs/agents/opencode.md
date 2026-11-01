@@ -39,7 +39,9 @@ OpenCode has two sets of docs, and the unversioned ones describe V1. Use the V2 
 | Sources are `~/.config/opencode/skills`, `~/.claude/skills`, `~/.agents/skills`, `.opencode/skills`, `.claude/skills`, and `.agents/skills` | Doc + Tested |
 | Project sources are searched from the current directory up to the project root | Doc |
 | A `skills` config array adds sources, with relative paths resolved from the working directory | Doc + Tested |
-| Precedence from lowest is built-in, `.claude/skills`, `.agents/skills`, the global directory, `.opencode/skills`, then the config's `skills` entries | Doc |
+| Precedence from lowest is built-in, `.claude/skills`, `.agents/skills`, the global directory, `.opencode/skills`, then the config's `skills` entries | Doc + Tested |
+| Among the compatibility sources, from lowest: `~/.claude/skills`, `.claude/skills`, `~/.agents/skills`, `.agents/skills` | Tested |
+| Skills conflict by ID, not `name`. Same-named skills with different IDs both load | Tested |
 | `SKILL.md` can be nested in grouping directories | Doc + Tested |
 | Search stops six directories below the source root | Doc + Tested |
 | A directory containing `SKILL.md` is one skill, and isn't searched for more | Doc + Tested |
@@ -94,6 +96,8 @@ Permissions control skills:
 - **Denied skills stay in the API:** a denied skill still appears in `/api/skill`, so that list doesn't reflect permissions.
 - **Plugin removal order:** `plugins` entries apply in order, after auto-discovered plugins. A removal affects what came before it, so a later entry can re-add a plugin.
 - **Plugin removal patterns:** a removal matches an exact ID, `*`, or `prefix.*`. `-id-*` does nothing, and neither does a file name such as `-local`, because IDs are defined in the plugin's code.
+- **Skill conflicts within a source:** with one ID, a later nested directory beats an earlier one, a directory beats a same-named `.md` file, and `skills/` beats `skill/`.
+- **What takes an ID:** a standalone `.md` file, and a skill with no description or frontmatter, beat a lower source. A dangling link doesn't.
 - **Removing built-ins:** `-*` also removes built-in plugins. `-opencode.config.skill` makes all skills on disk disappear, `-opencode.config.mcp` does the same for servers, and `-opencode.skill` only removes built-in skills. `-opencode.config.compatibility` drops the `.claude/skills` and `.agents/skills` sources at user and project level, and keeps OpenCode's own.
 - **Plugin load failures:** `/api/plugin` shows a failed plugin as `state.status: "failed"`, and a missing configured directory fails the same way. A configured single file is skipped without appearing at all.
 - **Invalid V2 entries are dropped:** a server with an unknown `type` doesn't appear in `/api/mcp`. `agt-view` shows it as `broken`.
@@ -104,6 +108,7 @@ Permissions control skills:
 
 ## How `agt-view` handles what it can't observe
 
+- **Replaced servers:** only the winning entry is listed, with a finding that names the file it overrides.
 - **Plugin IDs:** these are found by reading `id: "..."` from the plugin's source, without running it. If a removal is configured and a plugin's ID can't be read, that plugin is `unknown`.
 - **Package plugins:** these are always `unknown`, because they install at startup, which can fail. They weren't tested, to avoid network installs.
 - **Plugin load failures:** a plugin whose code fails when loaded is shown as `enabled`, because detecting that means running it.
@@ -115,6 +120,7 @@ Permissions control skills:
 - `opencode.json` and `opencode.jsonc` in one directory are both read, with `.jsonc` applied later. Testing confirmed both are read, but not which wins.
 - The `OPENCODE_DISABLE_*` variables above do what their names say. `agt-view` honors them, but their effect wasn't tested.
 - `plugin` (V1) entries apply before `plugins` (V2) within one config file.
+- Among `skills` config entries, a later one beats an earlier one, and `OPENCODE_CONFIG_DIR` beats the global directory. Neither was tested.
 
 ## Not covered by `agt-view`
 

@@ -6,6 +6,7 @@ gets its own port and is stopped afterwards.
 """
 
 import base64
+import itertools
 import json
 import os
 import socket
@@ -163,6 +164,65 @@ def test_skills_match(api):
             ),
         )
         for item in scan(api, Kind.SKILL)
+    }
+    assert ours == theirs
+
+
+def test_skill_precedence_matches(api):
+    home, project = api.home, api.project
+    sources = {
+        "config": api.tmp / "cfg",
+        "opencode": project / ".opencode" / "skills",
+        "global": home / ".config" / "opencode" / "skills",
+        "project-agents": project / ".agents" / "skills",
+        "user-agents": home / ".agents" / "skills",
+        "project-claude": project / ".claude" / "skills",
+        "user-claude": home / ".claude" / "skills",
+    }
+    write(home / ".config" / "opencode" / "opencode.json", {"skills": [str(sources["config"])]})
+    for a, b in itertools.combinations(sources, 2):
+        for source in (a, b):
+            write_skill(sources[source] / f"{a}-{b}", f"name: {a}-{b}\ndescription: {source}")
+    own, global_skills = sources["opencode"], sources["global"]
+    # Matched by directory name, not the `name` field.
+    write_skill(own / "samedir", "name: name-a\ndescription: d")
+    write_skill(global_skills / "samedir", "name: name-b\ndescription: d")
+    write_skill(own / "dir-1", "name: same-name\ndescription: d")
+    write_skill(global_skills / "dir-2", "name: same-name\ndescription: d")
+    # Within one source.
+    write_skill(global_skills / "a" / "nest", "name: first\ndescription: d")
+    write_skill(global_skills / "b" / "nest", "name: second\ndescription: d")
+    write_skill(global_skills / "mix", "name: directory\ndescription: d")
+    write(global_skills / "mix.md", "---\nname: file\ndescription: d\n---\n")
+    write_skill(global_skills / "sing", "name: plural\ndescription: d")
+    write_skill(global_skills.parent / "skill" / "sing", "name: singular\ndescription: d")
+    # What doesn't take the name.
+    (own / "dangling").symlink_to(home / "gone")
+    write_skill(global_skills / "dangling", "name: dangling\ndescription: d")
+    # What does.
+    write(own / "standalone.md", "---\nname: as-file\ndescription: d\n---\n")
+    write_skill(global_skills / "standalone", "name: as-directory\ndescription: d")
+    write_skill(own / "no-description", "name: no-description")
+    write_skill(global_skills / "no-description", "name: other\ndescription: d")
+    write(own / "no-frontmatter" / "SKILL.md", "text\n")
+    write_skill(global_skills / "no-frontmatter", "name: another\ndescription: d")
+
+    theirs = {
+        (skill["name"], skill["path"])
+        for skill in api("/api/skill")
+        if not skill["path"].startswith("/builtin/")
+    }
+    ours = {
+        (
+            item.name,
+            str(
+                item.source_path
+                if item.source_path.suffix == ".md"
+                else item.source_path / "SKILL.md"
+            ),
+        )
+        for item in scan(api, Kind.SKILL)
+        if item.status not in (Status.SHADOWED, Status.BROKEN)
     }
     assert ours == theirs
 

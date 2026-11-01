@@ -82,7 +82,9 @@ class Antigravity:
         status = default if not skill.broken and skill.fields is not None else Status.BROKEN
         if skill.fields is not None:
             skill.fields["name"] = skill.fields.get("name") or _UNNAMED_SKILL
-        return skill_item(self.id, skill, scope, status)
+        return skill_item(
+            self.id, skill, scope, status, "has no frontmatter, which Antigravity CLI requires"
+        )
 
     def _servers(
         self, path: Path, scope: Scope, default: Status, report: AgentReport

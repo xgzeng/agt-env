@@ -8,6 +8,7 @@ from agt_view.frontmatter import parse_frontmatter
 
 SKILL_FILE = "SKILL.md"
 _MAX_READ_BYTES = 64 * 1024
+_MISSING_TARGET = "symlink target is missing"
 
 
 @dataclass
@@ -19,6 +20,7 @@ class FoundSkill:
     fields: dict[str, str] | None = None
     body: str = ""
     standalone: bool = False  # A single Markdown file rather than a directory.
+    problem: str = ""  # Why it's broken.
 
     @property
     def default_name(self) -> str:
@@ -90,15 +92,32 @@ def scan_markdown_skills(root: Path) -> tuple[list[FoundSkill], list[str]]:
         path = root / name
         if name.startswith(".") or not name.endswith(".md") or name == SKILL_FILE:
             continue
-        skill = FoundSkill(path, path, Path(os.path.realpath(path)), broken=True, standalone=True)
+        skill = FoundSkill(
+            path,
+            path,
+            Path(os.path.realpath(path)),
+            broken=True,
+            standalone=True,
+            problem=_MISSING_TARGET if _is_dangling(path) else "file can't be read",
+        )
         found.append(skill)
         if os.path.isfile(path):
             _load(skill, warnings)
     return found, warnings
 
 
+def _is_dangling(path: Path) -> bool:
+    return os.path.islink(path) and not os.path.exists(path)
+
+
 def _broken(path: Path) -> FoundSkill:
-    return FoundSkill(path, path / SKILL_FILE, Path(os.path.realpath(path)), broken=True)
+    return FoundSkill(
+        path,
+        path / SKILL_FILE,
+        Path(os.path.realpath(path)),
+        broken=True,
+        problem=_MISSING_TARGET if _is_dangling(path) else f"{SKILL_FILE} can't be read",
+    )
 
 
 def read_skill(path: Path, warnings: list[str]) -> FoundSkill:
@@ -115,12 +134,14 @@ def _load(skill: FoundSkill, warnings: list[str]) -> None:
     # otherwise print a key or token from any file it names. The skill stays broken.
     if not os.path.realpath(skill.skill_file).lower().endswith(".md"):
         warnings.append(f"not reading {skill.skill_file}: it links to a non-Markdown file")
+        skill.problem = "not read: links to a non-Markdown file"
         return
     try:
         with open(skill.skill_file, "rb") as file:
-            text = file.read(_MAX_READ_BYTES).decode("utf-8", errors="replace")
+            content = file.read(_MAX_READ_BYTES)
     except OSError as error:
         warnings.append(f"cannot read {skill.skill_file}: {error.strerror}")
         return
     skill.broken = False
-    skill.fields, skill.body = parse_frontmatter(text)
+    skill.problem = ""
+    skill.fields, skill.body = parse_frontmatter(content.decode("utf-8", errors="replace"))

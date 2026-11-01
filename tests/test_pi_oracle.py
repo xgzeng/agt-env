@@ -5,6 +5,7 @@ configuration: HOME is temporary. Fixture extensions only register a command, an
 servers only run /bin/true.
 """
 
+import itertools
 import json
 import os
 import select
@@ -197,3 +198,131 @@ def test_invalid_server_is_reported_as_config_error(machine_dirs, tmp_path):
     )
     assert 'server "bad"' in result.stdout + result.stderr
     assert [i.status for i in scan(tmp_path, home, project) if i.name == "bad"] == [Status.BROKEN]
+
+
+def test_skill_precedence_matches(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    sources = {
+        "project-list": tmp_path / "project-list",
+        "pi": project / ".pi" / "skills",
+        "project-agents": project / ".agents" / "skills",
+        "user-list": tmp_path / "user-list",
+        "agent": agent / "skills",
+        "user-agents": home / ".agents" / "skills",
+    }
+    for a, b in itertools.combinations(sources, 2):
+        for source in (a, b):
+            write_skill(sources[source] / f"{a}-{b}", f"name: {a}-{b}\ndescription: {source}")
+    # Matched by name, not directory.
+    write_skill(sources["agent"] / "one", "name: same\ndescription: d")
+    write_skill(sources["pi"] / "two", "name: same\ndescription: d")
+    # Within one source.
+    write_skill(sources["agent"] / "first", "name: same-source\ndescription: d")
+    write_skill(sources["agent"] / "second", "name: same-source\ndescription: d")
+    # Neither an invalid skill nor an excluded one takes the name.
+    write_skill(sources["agent"] / "invalid", "name: invalid\ndescription: d")
+    write_skill(sources["pi"] / "invalid", "name: invalid")
+    write_skill(sources["user-agents"] / "lower", "name: excluded\ndescription: d")
+    write_skill(sources["agent"] / "gone", "name: excluded\ndescription: d")
+    write(
+        agent / "settings.json",
+        {
+            "defaultProjectTrust": "always",
+            "skills": [str(sources["user-list"]), "!**/.pi/agent/skills/gone/**"],
+        },
+    )
+    write(project / ".pi" / "settings.json", {"skills": [str(sources["project-list"])]})
+    write(agent / "trust.json", {str(project.resolve()): True})
+
+    theirs = {
+        (command["name"].removeprefix("skill:"), command["sourceInfo"]["path"])
+        for command in their_commands(home, project)
+        if command["source"] == "skill"
+    }
+    ours = {
+        (item.name, str(item.source_path / "SKILL.md"))
+        for item in scan(tmp_path, home, project)
+        if item.kind is Kind.SKILL and item.status is Status.ENABLED
+    }
+    assert ours == theirs
+
+
+def test_server_precedence_matches(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    write(
+        agent / "mcp.json",
+        {
+            "mcpServers": {
+                "both": {"command": "/bin/true"},
+                "off-in-user": {"command": "/bin/true", "enabled": False},
+                "off-in-project": {"command": "/bin/true"},
+                "user-only": {"command": "/bin/true"},
+            }
+        },
+    )
+    write(
+        project / ".pi" / "mcp.json",
+        {
+            "mcpServers": {
+                "both": {"command": "/bin/false"},
+                "off-in-user": {"command": "/bin/false"},
+                "off-in-project": {"command": "/bin/false", "enabled": False},
+            }
+        },
+    )
+    write(agent / "trust.json", {str(project.resolve()): True})
+    output = subprocess.run(
+        [PI, "mcp", "list"],
+        check=False,
+        cwd=project,
+        env=pi_env(home),
+        capture_output=True,
+        text=True,
+        timeout=90,
+    ).stdout
+    theirs = {}
+    lines = output.splitlines()
+    for line, following in itertools.pairwise(lines):
+        if line and not line.startswith(" ") and ": " in line:
+            name, state = line.split(": ", 1)
+            theirs[name] = (not state.startswith("disabled"), following.strip())
+    ours = {
+        item.name: (item.status is Status.ENABLED, item.details["command"])
+        for item in scan(tmp_path, home, project)
+        if item.kind is Kind.MCP and item.status is not Status.SHADOWED
+    }
+    assert ours == theirs
+
+
+@pytest.mark.parametrize("layer", ["user", "project"])
+def test_exclusions_apply_only_to_their_own_scope(machine_dirs, tmp_path, layer):
+    home, project, agent = machine_dirs
+    for label, root in {
+        "agent": agent,
+        "user-agents": home / ".agents",
+        "pi": project / ".pi",
+        "project-agents": project / ".agents",
+    }.items():
+        write_skill(root / "skills" / "victim", f"name: skill-{label}\ndescription: d")
+    write(agent / "extensions" / "victim.ts", extension("ext-user"))
+    write(project / ".pi" / "extensions" / "victim.ts", extension("ext-project"))
+    patterns = {"skills": ["!victim"], "extensions": ["!victim*"]}
+    write(agent / "trust.json", {str(project.resolve()): True})
+    write(agent / "settings.json", patterns if layer == "user" else {})
+    if layer == "project":
+        write(project / ".pi" / "settings.json", patterns)
+
+    commands = their_commands(home, project)
+    theirs_skills = {c["name"].removeprefix("skill:") for c in commands if c["source"] == "skill"}
+    theirs_extensions = {
+        c["name"].removeprefix("ext-")
+        for c in commands
+        if c["source"] == "extension" and c["name"].startswith("ext-")
+    }
+    items = scan(tmp_path, home, project)
+    ours_skills = {i.name for i in items if i.kind is Kind.SKILL and i.status is Status.ENABLED}
+    assert ours_skills == theirs_skills
+    ours_extensions = {
+        i.scope.value for i in items if i.kind is Kind.PLUGIN and i.status is Status.ENABLED
+    }
+    assert ours_extensions == theirs_extensions

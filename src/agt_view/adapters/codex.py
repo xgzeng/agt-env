@@ -10,9 +10,17 @@ import os
 import tomllib
 from pathlib import Path
 
-from agt_view.adapters.base import Context, config_dir, load_once, unique_roots
+from agt_view.adapters.base import (
+    INVALID_SERVER,
+    MISSING_PLUGIN,
+    Context,
+    config_dir,
+    load_once,
+    mark_shadowed,
+    unique_roots,
+)
 from agt_view.mcp import remote_details, stdio_details
-from agt_view.model import AgentReport, Item, Kind, Scope, Status
+from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
 from agt_view.skills import FoundSkill, scan_skills
 
 _MAX_DEPTH = 6
@@ -58,29 +66,51 @@ class Codex:
         if os.path.realpath(project_path) != os.path.realpath(user_path):
             project_config = _read_toml(project_path, report.warnings) or {}
             layers.append((project_config, Scope.PROJECT, project_path, trust))
+        user_servers = (user_config or {}).get("mcp_servers")
+        servers_by_layer = []
         for config, scope, path, default in layers:
-            report.items.extend(self._mcp_servers(config, scope, path, default))
+            # A trusted project's entry is merged over the user's, field by field.
+            base = user_servers if scope is Scope.PROJECT and trust is Status.ENABLED else None
+            servers = self._mcp_servers(config, scope, path, default, base)
+            servers_by_layer.append(servers)
+            report.items.extend(servers)
             report.items.extend(self._plugins(config, scope, path, default, codex_home))
+        if trust is Status.ENABLED:
+            # A project entry that turns a server off still replaces the user's.
+            mark_shadowed(
+                [item for servers in reversed(servers_by_layer) for item in servers],
+                winners=frozenset({Status.ENABLED, Status.DISABLED}),
+            )
         return report
 
     def _skill(self, skill: FoundSkill, scope: Scope, disabled: set[str] | None) -> Item:
         fields = skill.fields or {}
+        status = _skill_status(skill, disabled)
         return Item(
             name=fields.get("name") or skill.path.name,
             kind=Kind.SKILL,
             native_kind="skill",
             agent=self.id,
             scope=scope,
-            status=_skill_status(skill, disabled),
+            status=status,
             description=fields.get("description", ""),
             source_path=skill.path,
             resolved_path=skill.resolved_path,
+            findings=(
+                [Finding(skill.problem or "has no description, which Codex requires")]
+                if status is Status.BROKEN
+                else []
+            ),
         )
 
-    def _mcp_servers(self, config: dict, scope: Scope, path: Path, default: Status) -> list[Item]:
+    def _mcp_servers(
+        self, config: dict, scope: Scope, path: Path, default: Status, base: object = None
+    ) -> list[Item]:
         servers = config.get("mcp_servers")
         items = []
         for name, entry in servers.items() if isinstance(servers, dict) else ():
+            if isinstance(base, dict):
+                entry = _merged(base.get(name), entry)
             details = _server_details(entry)
             if details is None:
                 status, details = Status.BROKEN, {}
@@ -98,6 +128,7 @@ class Codex:
                     source_path=path,
                     resolved_path=Path(os.path.realpath(path)),
                     details=details,
+                    findings=[INVALID_SERVER] if status is Status.BROKEN else [],
                 )
             )
         return items
@@ -133,9 +164,19 @@ class Codex:
                     description=_plugin_description(directory) if cached else "",
                     source_path=source,
                     resolved_path=Path(os.path.realpath(source)),
+                    findings=[MISSING_PLUGIN] if status is Status.BROKEN else [],
                 )
             )
         return items
+
+
+def _merged(base: object, entry: object) -> object:
+    if not isinstance(base, dict) or not isinstance(entry, dict):
+        return entry
+    merged = dict(base)
+    for key, value in entry.items():
+        merged[key] = _merged(base.get(key), value)
+    return merged
 
 
 def _switched(enabled: object, default: Status) -> Status:

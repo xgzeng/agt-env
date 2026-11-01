@@ -81,6 +81,7 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 
 ## Assumptions
 
+- Precedence between same-named skills or servers isn't known, because the listings that show them need a signed-in session. `agt-view` never reports these as `shadowed`.
 - `~/.gemini/skills` loads skills like the other user directories, based only on `/skills` naming it.
 - `config.json` can disable a workspace plugin as it does a global one.
 

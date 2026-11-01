@@ -64,7 +64,6 @@ Priorities: **P0** is required for v1, **P1** follows soon after, and **P2** is 
 | Command | Purpose | Priority |
 |---|---|---|
 | `agt-view [keyword...]` | Agents and their items, filterable | P0 |
-| `agt-view doctor` | Broken symlinks, parse failures, drifted copies, shadowing | P1 |
 | `agt-view probe` | Opt-in live checks through agent CLIs (see 5.5) | P2 |
 
 Agents appear in rank order (see section 6), each with a header showing its state and config location, followed by its items sorted by scope (project, user, system), then kind, then name.
@@ -111,6 +110,21 @@ U/skill     my-skill  enabled
             Shared with:  agent-a
 ```
 
+Problems are shown with the items they affect, in the same output, with no separate command. Each finding is a row directly below its item, starting at the `NAME` column, and an agent without any looks as above. With `--detail`, each finding is a `Finding:` line among the item's details.
+
+```text
+$ agt-view -a agent-a
+agent-a  ~/.agent-a
+  SCOPE/KIND  NAME      STATUS
+  P/skill     my-skill  shadowed
+              ! shadowed by ~/.agent-a/skills/my-skill
+  U/skill     my-skill  enabled
+  U/skill     old       broken
+              ! symlink target is missing
+```
+
+Findings can be searched like everything else shown for an item, and they don't change the exit code. A config file that can't be read stays a warning on stderr (FR-17).
+
 With `--all`, hidden agents are added with their state:
 
 ```text
@@ -138,8 +152,8 @@ agent-d  installed, not configured
 - **FR-4 (P0):** Determine status from the agent's own configuration. An item in a plugin cache that is not enabled must not be reported as `enabled`.
 - **FR-5 (P0):** Follow symlinks and record both the path found and the resolved path. Report a dangling symlink as `broken`.
 - **FR-6 (P0):** Treat items that resolve to the same real path as shared, naming the other agents under `--detail`, while still listing them under each agent.
-- **FR-7 (P1):** Flag same-named skills at different real paths with different content as drift.
-- **FR-8 (P1):** Show when a project item shadows a user item, following that agent's precedence rules.
+- **FR-8 (P1):** When an agent's precedence rules mean a same-named item is used instead, report the item as `shadowed` and show a finding naming the winner. Only rules with evidence count, so an agent whose rule isn't known is never flagged.
+- **FR-23 (P1):** Show why each `broken` item is broken. The reason is fixed text, never file contents.
 - **FR-9 (P1):** List skills bundled in enabled plugins, with namespaced names such as `my-plugin:my-skill`.
 - **FR-10 (P0):** Only treat a directory as a skill if it meets the agent's definition. A directory that only groups other skills must be descended into or skipped, not counted.
 - **FR-20 (P0):** Resolve locations from the environment, not fixed paths: honor `HOME`, XDG variables, and each agent's documented config-directory overrides. When an override moves an agent's location away from its default, the output shows the location in use and the variable that set it in the agent's header.
@@ -158,12 +172,13 @@ Every item has these fields, and adapters must fill them consistently:
 | `native_kind` | The agent's own term | `plugin` |
 | `agent` | Agent ID (see section 6) | `agent-a` |
 | `scope` | `user`, `project`, or `system` | `user` |
-| `status` | `enabled`, `disabled`, `pending` (waiting for the user to approve or trust it), `broken`, or `unknown` | `enabled` |
+| `status` | `enabled`, `disabled`, `pending` (waiting for the user to approve or trust it), `broken`, `shadowed` (a same-named item is used instead), or `unknown` | `enabled` |
 | `description` | Short description, if the source has one | What the skill does and when to use it. |
 | `source_path` | Where the item was found | `/home/me/.agent-a/skills/my-skill` |
 | `resolved_path` | Real path after following symlinks | `/home/me/shared-skills/my-skill` |
 | `shared_with` | Other agents using the same real path | `agent-b` |
 | `details` | Kind-specific information | See below |
+| `findings` | Problems to show with the item, such as why it's broken | `symlink target is missing` |
 
 **MCP `details`** contains transport, command or URL, and the *names* of env vars and headers, never their values.
 
@@ -255,7 +270,7 @@ These are acceptance checks, run against fixtures in CI, except where noted:
 
 1. **M1, foundation:** data model, adapter interface, skill discovery, Claude Code and Codex adapters, listing, packaging for `uvx`.
 2. **M2, P0 complete:** remaining P0 adapters, MCP and plugins, details and filters, safety tests.
-3. **M3, diagnostics:** `doctor`, drift and shadow detection, plugin-bundled skills, hooks, subagents, commands.
+3. **M3, diagnostics:** findings in the normal output (why items are broken, and shadowing), plugin-bundled skills, hooks, subagents, commands.
 4. **M4, breadth:** `probe`, and P2 adapters in rank order as demand appears.
 
 ## 11. Decisions and open questions

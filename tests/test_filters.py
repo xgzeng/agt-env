@@ -11,7 +11,7 @@ def names(capsys, *args):
     found = []
     for line in capsys.readouterr().out.splitlines():
         parts = line.split()
-        if line.startswith("  ") and parts[0] != "SCOPE/KIND" and parts[0] != "no":
+        if line.startswith("  ") and parts[0] not in ("SCOPE/KIND", "no", "!"):
             found.append(parts[1])
     return sorted(found)
 

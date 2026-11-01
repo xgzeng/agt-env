@@ -7,7 +7,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from agt_view.model import AgentReport, Item, Scope
+from agt_view.model import AgentReport, Finding, Item, Scope
 
 _ESCAPE_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\^_][^\x1b]*(?:\x1b\\)?|.)?"
@@ -47,6 +47,13 @@ def display_path(path: Path, *, home: Path, cwd: Path) -> str:
     return str(path)
 
 
+def finding_text(finding: Finding, *, home: Path, cwd: Path) -> str:
+    parts = [clean(finding.text)]
+    if finding.path:
+        parts.append(clean(display_path(finding.path, home=home, cwd=cwd)))
+    return " ".join(parts)
+
+
 def item_path(item: Item, *, home: Path, cwd: Path) -> str:
     path = clean(display_path(item.source_path, home=home, cwd=cwd))
     return f"{path} (symlink)" if item.is_symlink else path
@@ -80,6 +87,8 @@ def detail_fields(item: Item, *, home: Path, cwd: Path) -> list[tuple[str, str]]
             value = ", ".join(str(entry) for entry in value)
         if value:
             fields.append((label, clean(str(value))))
+    for finding in item.findings:
+        fields.append(("Finding", finding_text(finding, home=home, cwd=cwd)))
     return fields
 
 
@@ -119,8 +128,8 @@ def render_report(
         cells = [cell.ljust(width) for cell, width in zip(row, widths)]
         return (margin + "  ".join(cells)).rstrip()
 
-    # Details start at the NAME column.
-    indent = " " * (widths[0] + 2)
+    # Details and findings start at the NAME column.
+    indent = " " * (len(margin) + widths[0] + 2)
     table_width = sum(widths) + 2 * (len(widths) - 1)
     separator = "-" * table_width
     lines.append(format_row(COLUMNS))
@@ -129,6 +138,10 @@ def render_report(
             lines.append(separator)
         lines.append(format_row(row))
         if detail:
-            for line in _detail_lines(item, home=home, cwd=cwd):
-                lines.append(f"{indent}{line}")
+            lines.extend(f"{indent}{line}" for line in _detail_lines(item, home=home, cwd=cwd))
+        else:
+            lines.extend(
+                f"{indent}! {finding_text(finding, home=home, cwd=cwd)}"
+                for finding in item.findings
+            )
     return "\n".join(lines)

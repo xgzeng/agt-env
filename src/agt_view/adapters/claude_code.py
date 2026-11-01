@@ -13,15 +13,18 @@ import unicodedata
 from pathlib import Path
 
 from agt_view.adapters.base import (
+    INVALID_SERVER,
+    MISSING_PLUGIN,
     Context,
     config_dir,
     first_existing,
     load_once,
+    mark_shadowed,
     read_json,
     unique_roots,
 )
 from agt_view.mcp import remote_details, stdio_details
-from agt_view.model import AgentReport, Item, Kind, Scope, Status
+from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
 from agt_view.skills import FoundSkill, scan_skills
 
 _VISIBLE_OVERRIDES = {"on", "name-only", "user-invocable-only"}
@@ -76,6 +79,8 @@ class ClaudeCode:
             report.warnings.extend(warnings)
             report.items.extend(self._skill(skill, scope, settings) for skill in found)
         report.items = load_once(report.items)
+        # Roots are in precedence order: enterprise, personal, project.
+        mark_shadowed(report.items)
 
         mcp = _McpRules(settings, project_state, trusted, state_ok, managed_dir, report.warnings)
         report.items.extend(mcp.items(self.id, state, user_state_path, project_mcp_path))
@@ -100,6 +105,11 @@ class ClaudeCode:
             description=description,
             source_path=skill.path,
             resolved_path=skill.resolved_path,
+            findings=(
+                [Finding(skill.problem or "Claude Code refuses this name")]
+                if status is Status.BROKEN
+                else []
+            ),
         )
 
     def _plugins(
@@ -143,6 +153,7 @@ class ClaudeCode:
             source_path=path,
             resolved_path=Path(os.path.realpath(path)),
             details={"version": install.get("version")},
+            findings=[] if exists else [MISSING_PLUGIN],
         )
 
 
@@ -235,14 +246,18 @@ class _McpRules:
             (self.project_state.get("mcpServers"), Scope.PROJECT, user_path, self.state_ok),
             (project_file.get("mcpServers"), Scope.PROJECT, project_path, project_ok),
         ]
-        items = []
+        groups = []
         for servers, scope, path, ok in sources:
-            if not isinstance(servers, dict):
-                continue
             needs_approval = path == project_path
-            for name, entry in servers.items():
-                items.append(self._item(agent, name, entry, scope, path, ok, needs_approval))
-        return items
+            groups.append(
+                [
+                    self._item(agent, name, entry, scope, path, ok, needs_approval)
+                    for name, entry in (servers.items() if isinstance(servers, dict) else ())
+                ]
+            )
+        _, _, user, local, project = groups
+        mark_shadowed([*local, *project, *user])
+        return [item for group in groups for item in group]
 
     def _item(
         self,
@@ -278,6 +293,7 @@ class _McpRules:
             source_path=path,
             resolved_path=Path(os.path.realpath(path)),
             details=details,
+            findings=[INVALID_SERVER] if status is Status.BROKEN else [],
         )
 
     def _approval(self, name: str) -> Status:

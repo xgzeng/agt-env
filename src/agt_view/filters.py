@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agt_view.model import AgentReport, Item
-from agt_view.render_plain import clean, display_path, item_path, scope_letter
+from agt_view.render_plain import clean, display_path, finding_text, item_path, scope_letter
 
 
 def select_reports(
@@ -38,6 +38,7 @@ def _search_text(item: Item, *, home: Path, cwd: Path) -> str:
         item_path(item, home=home, cwd=cwd),
         display_path(item.resolved_path, home=home, cwd=cwd),
         *item.shared_with,
+        *[finding_text(finding, home=home, cwd=cwd) for finding in item.findings],
     ]
     for value in item.details.values():
         if isinstance(value, list):

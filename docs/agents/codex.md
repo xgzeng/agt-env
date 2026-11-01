@@ -39,6 +39,9 @@ These pages are long, and parts of the config, MCP, and plugin pages were read t
 | Servers are `[mcp_servers.<name>]` in `config.toml` | Doc + Tested |
 | `command` means stdio, and `url` means streamable HTTP | Doc + Tested |
 | `enabled = false` turns a server off | Doc + Tested |
+| In a trusted project, a same-named entry is merged over the user's entry field by field, including `enabled`, and `env` key by key | Tested |
+| A project entry with only `enabled` or `env` is valid, because it inherits the user's `command` | Tested |
+| A merged entry with both `command` and `url` makes Codex reject the config | Tested |
 
 ## Plugins
 
@@ -63,6 +66,11 @@ These pages are long, and parts of the config, MCP, and plugin pages were read t
 - **Listing commands:** `codex mcp list --json` works, and `codex app-server` offers `skills/list` and `plugin/list`. The docs don't mention them.
 - **Plugin files:** `plugins/cache/<marketplace>/<name>/<version>` holds plugins, with a manifest at `.codex-plugin/plugin.json`. This was seen on a real install, not confirmed by a test.
 - **Cached plugins:** the cache can hold plugins with no config entry, so being cached doesn't show that a plugin is enabled.
+
+## How `agt-view` reports this
+
+- The user's entry is `shadowed` by a trusted project's entry, even when the project's turns the server off. The project's row shows the merged result.
+- Duplicate skills all load, so they're never `shadowed`.
 
 ## Assumptions
 

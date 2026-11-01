@@ -17,6 +17,7 @@ from agt_view.adapters.base import (
     first_existing,
     list_entries,
     load_once,
+    mark_shadowed,
     mcp_item,
     plugin_item,
     read_json,
@@ -64,7 +65,8 @@ class _Resources:
     def excludes(self, path: Path, relative_to: Path) -> bool:
         if os.path.realpath(path) in self.excluded_paths:
             return True
-        candidates = [str(path), path.name]
+        # Pi also matches the file inside a skill, so `!**/name/**` excludes that skill.
+        candidates = [str(path), path.name, str(path / SKILL_FILE)]
         if path.is_relative_to(relative_to):
             candidates.append(str(path.relative_to(relative_to)))
         return any(
@@ -72,6 +74,13 @@ class _Resources:
             for pattern in self.excluded_globs
             for candidate in candidates
         )
+
+
+# Skill sources, highest precedence first, as tested against Pi. See docs/agents/pi.md.
+_RANK_PROJECT_LISTED, _RANK_PI_SKILLS, _RANK_PROJECT_AGENTS = 0, 1, 2
+_RANK_USER_LISTED, _RANK_AGENT_DIR, _RANK_USER_AGENTS = 3, 4, 5
+# A turned-off project server still replaces the user's.
+_SERVER_NAME_TAKERS = frozenset({Status.ENABLED, Status.DISABLED})
 
 
 class Pi:
@@ -119,8 +128,16 @@ class Pi:
     def _skills(
         self, context, agent_dir, project_dir, layers, trust, reliable, report
     ) -> list[Item]:
-        resources = _Resources(agent_dir)
-        found: list[tuple[FoundSkill, Scope]] = []
+        # Exclusions only apply to skills of the scope whose settings list them.
+        bases = {Scope.USER: agent_dir, Scope.PROJECT: project_dir}
+        resources = {scope: _Resources(base) for scope, base in bases.items()}
+        found: list[tuple[FoundSkill, Scope, int]] = []
+        ranks = {
+            project_dir / "skills": _RANK_PI_SKILLS,
+            context.cwd / ".agents" / "skills": _RANK_PROJECT_AGENTS,
+            agent_dir / "skills": _RANK_AGENT_DIR,
+            context.home / ".agents" / "skills": _RANK_USER_AGENTS,
+        }
         for scope, root in unique_roots(
             [
                 (Scope.USER, agent_dir / "skills"),
@@ -135,24 +152,38 @@ class Pi:
                 skills += standalone
                 warnings += more_warnings
             report.warnings.extend(warnings)
-            found.extend((skill, scope) for skill in skills)
+            found.extend((skill, scope, ranks[root]) for skill in skills)
         for settings, base, scope, _ in layers:
             listed = _Resources(base)
             listed.add(settings.get("skills"))
-            resources.excluded_paths |= listed.excluded_paths
-            resources.excluded_globs += listed.excluded_globs
+            resources[scope].excluded_paths |= listed.excluded_paths
+            resources[scope].excluded_globs += listed.excluded_globs
+            rank = _RANK_USER_LISTED if scope is Scope.USER else _RANK_PROJECT_LISTED
             for path in listed.paths:
-                found.extend((skill, scope) for skill in _listed_skills(path, report.warnings))
+                found.extend(
+                    (skill, scope, rank) for skill in _listed_skills(path, report.warnings)
+                )
 
         items = []
-        for skill, scope in found:
+        rank_of: dict[int, int] = {}
+        for skill, scope, rank in found:
             default = Status.ENABLED if scope is Scope.USER else trust
-            status = _skill_status(skill, default, resources, reliable, agent_dir)
-            items.append(skill_item(self.id, skill, scope, status))
-        return load_once(items)
+            status = _skill_status(skill, default, resources[scope], reliable, bases[scope])
+            item = skill_item(
+                self.id, skill, scope, status, "has no description, which Pi requires"
+            )
+            rank_of[id(item)] = rank
+            items.append(item)
+        items = load_once(items)
+        # An untrusted project's skills don't load, so they can't take a name. In one source, the
+        # later skill wins.
+        competing = [i for i in reversed(items) if i.scope is Scope.USER or trust is Status.ENABLED]
+        mark_shadowed(sorted(competing, key=lambda i: rank_of[id(i)]))
+        return items
 
     def _extensions(self, agent_dir, project_dir, layers, trust, reliable, report) -> list[Item]:
-        resources = _Resources(agent_dir)
+        bases = {Scope.USER: agent_dir, Scope.PROJECT: project_dir}
+        resources = {scope: _Resources(base) for scope, base in bases.items()}
         candidates: list[tuple[Path, Scope]] = []
         for path, scope in (
             (agent_dir / "extensions", Scope.USER),
@@ -168,8 +199,8 @@ class Pi:
                 if isinstance(values, list)
                 else []
             )
-            resources.excluded_paths |= listed.excluded_paths
-            resources.excluded_globs += listed.excluded_globs
+            resources[scope].excluded_paths |= listed.excluded_paths
+            resources[scope].excluded_globs += listed.excluded_globs
             candidates.extend((path, scope) for path in listed.paths)
 
         items = []
@@ -182,7 +213,7 @@ class Pi:
             default = Status.ENABLED if scope is Scope.USER else trust
             if not os.path.exists(path):
                 status = Status.BROKEN
-            elif resources.excludes(path, agent_dir):
+            elif resources[scope].excludes(path, bases[scope]):
                 status = Status.DISABLED
             else:
                 status = default if reliable else Status.UNKNOWN
@@ -220,13 +251,13 @@ class Pi:
             for name, entry in project_servers.items()
             if isinstance(entry, dict) and not {"command", "url", "type"} & entry.keys()
         }
-        items = []
+        user_items, project_items = [], []
         for name, entry in user_servers.items():
             enabled = entry.get("enabled", True) if isinstance(entry, dict) else True
             if name in overrides and trust is Status.ENABLED:
                 enabled = overrides[name].get("enabled", enabled)
             status = _server_status(enabled, Status.ENABLED, mcp_off, reliable and user_ok)
-            items.append(
+            user_items.append(
                 mcp_item(self.id, name, _server_details(entry), Scope.USER, status, user_path)
             )
         for name, entry in project_servers.items():
@@ -234,10 +265,12 @@ class Pi:
                 continue
             enabled = entry.get("enabled", True) if isinstance(entry, dict) else True
             status = _server_status(enabled, trust, mcp_off, reliable and project_ok)
-            items.append(
+            project_items.append(
                 mcp_item(self.id, name, _server_details(entry), Scope.PROJECT, status, project_path)
             )
-        return items
+        if trust is Status.ENABLED:
+            mark_shadowed([*project_items, *user_items], winners=_SERVER_NAME_TAKERS)
+        return [*user_items, *project_items]
 
 
 def _server_entries(data: dict) -> dict:

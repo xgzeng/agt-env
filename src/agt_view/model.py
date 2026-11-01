@@ -26,6 +26,15 @@ class Status(StrEnum):
     PENDING = "pending"
     BROKEN = "broken"
     UNKNOWN = "unknown"
+    SHADOWED = "shadowed"  # It would load, but the agent uses a same-named item instead.
+
+
+@dataclass(frozen=True)
+class Finding:
+    """A problem to show with an item. The text is fixed, never taken from a file."""
+
+    text: str
+    path: Path | None = None
 
 
 @dataclass
@@ -41,6 +50,7 @@ class Item:
     resolved_path: Path
     shared_with: list[str] = field(default_factory=list)
     details: dict[str, object] = field(default_factory=dict)
+    findings: list[Finding] = field(default_factory=list)
 
     @property
     def id(self) -> str:

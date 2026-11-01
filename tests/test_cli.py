@@ -20,7 +20,7 @@ def rows(out):
     for line in out.splitlines():
         if line and not line.startswith(" "):
             agent = line.split()[0]
-        elif line.strip() and not line.strip().startswith(("SCOPE/KIND", "no items")):
+        elif line.strip() and not line.strip().startswith(("SCOPE/KIND", "no items", "!")):
             first, *others = re.split(r"\s{2,}", line.strip())
             letter, _, kind = first.partition("/")
             result.append((agent, kind, others[0], SCOPE_WORDS[letter], *others[1:]))

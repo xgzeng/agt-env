@@ -68,6 +68,30 @@ def run_piped(machine, *args, code=ENTRY_POINT, env=None):
     ).stdout
 
 
+def assert_broken_items_say_why(report):
+    from agt_view.model import Status
+
+    for item in report.items:
+        if item.status is Status.BROKEN:
+            assert item.findings and item.findings[0].text, item
+
+
+@pytest.fixture(autouse=True)
+def broken_items_say_why(monkeypatch):
+    """Every scan in every test checks that a broken item has a reason."""
+    from agt_view.adapters import ADAPTERS
+
+    for adapter in ADAPTERS:
+        original = type(adapter).scan
+
+        def scan(self, context, original=original):
+            report = original(self, context)
+            assert_broken_items_say_why(report)
+            return report
+
+        monkeypatch.setattr(type(adapter), "scan", scan)
+
+
 @pytest.fixture
 def machine(tmp_path, monkeypatch):
     """An isolated machine: empty HOME, empty project, nothing on PATH."""
