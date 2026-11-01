@@ -54,6 +54,10 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 | Workspace plugins are in `.agents/plugins/<name>/` | Doc + Tested |
 | The manifest is `plugin.json` or `.antigravity-plugin/plugin.json` | Doc + Tested |
 | A directory without a manifest isn't a plugin | Tested |
+| A plugin's skills are in `skills/`, one level deep, including hidden directories | Tested |
+| The manifest's `skills`, a path or a list, adds to `skills/`, and may point outside the plugin | Tested |
+| A `SKILL.md` at the plugin root doesn't load | Tested |
+| A plugin skill follows the same rules as others: named by `name`, or `SKILL` without one, and it needs frontmatter | Tested |
 
 ## Findings that differ from the documentation
 
@@ -74,6 +78,7 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 - **Plugin state:** plugins are enabled unless `~/.gemini/config/config.json` has `{"plugins": {"<name>": {"enabled": false}}}`. `agy plugin disable` writes this.
 - **Plugin names:** a plugin is named after its directory, even when its manifest has a different `name`.
 - **Listing commands:** `agy mcp list` and `agy plugin list` only show global items, not workspace ones. A session's `/mcp` and `/plugin` show workspace ones.
+- **Plugin skill listing:** `agy plugin list --json` has each plugin's `skills`, by bare name. It still lists them for a disabled plugin, so it says what a plugin contains rather than what loads.
 - **Trust prompt:** an untrusted folder gets a prompt before anything loads, and declining exits. `trustedWorkspaces` as a list of paths skips the prompt.
 - **Blank config:** an empty `mcp_config.json` means no servers, while malformed JSON is an error.
 - **Servers with no command or URL:** these are listed as enabled stdio servers but can't start. `agt-view` shows them as `broken`.
@@ -84,8 +89,10 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 - Precedence between same-named skills or servers isn't known, because the listings that show them need a signed-in session. `agt-view` never reports these as `shadowed`.
 - `~/.gemini/skills` loads skills like the other user directories, based only on `/skills` naming it.
 - `config.json` can disable a workspace plugin as it does a global one.
+- A disabled plugin's skills don't load. The docs imply it, and the listing that would show it needs a signed-in session.
+- Workspace plugin skills follow the same layout as global ones, and wait for the workspace trust.
 
 ## Not covered by `agt-view`
 
-- Built-in skills, and skills and MCP servers bundled in plugins.
+- Built-in skills, and MCP servers bundled in plugins.
 - Rules, agents, and hooks.

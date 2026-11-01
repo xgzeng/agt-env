@@ -18,14 +18,19 @@ from agt_view.adapters.base import (
     Context,
     config_dir,
     first_existing,
+    is_inside_plugin,
+    listed_paths,
     load_once,
+    loads_skills,
+    mark_bundled,
     mark_shadowed,
     read_json,
+    skill_item,
     unique_roots,
 )
 from agt_view.mcp import remote_details, stdio_details
 from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
-from agt_view.skills import FoundSkill, scan_skills
+from agt_view.skills import SKILL_FILE, FoundSkill, read_skill, scan_skills, skills_at
 
 _VISIBLE_OVERRIDES = {"on", "name-only", "user-invocable-only"}
 _DENY_RULE = re.compile(r"^Skill\((.+?)(?:(?: |:)\*)?\)$")
@@ -84,7 +89,18 @@ class ClaudeCode:
 
         mcp = _McpRules(settings, project_state, trusted, state_ok, managed_dir, report.warnings)
         report.items.extend(mcp.items(self.id, state, user_state_path, project_mcp_path))
-        report.items.extend(self._plugins(user_dir, context, settings, report.warnings))
+        plugins = self._plugins(user_dir, context, settings, report.warnings)
+        report.items.extend(plugins)
+        report.items.extend(
+            load_once(
+                [
+                    skill
+                    for plugin in plugins
+                    if loads_skills(plugin)
+                    for skill in self._plugin_skills(plugin, settings, report.warnings)
+                ]
+            )
+        )
         return report
 
     def _skill(self, skill: FoundSkill, scope: Scope, settings: "_Settings") -> Item:
@@ -156,6 +172,31 @@ class ClaudeCode:
             findings=[] if exists else [MISSING_PLUGIN],
         )
 
+    def _plugin_skills(
+        self, plugin: Item, settings: "_Settings", warnings: list[str]
+    ) -> list[Item]:
+        root = plugin.source_path
+        prefix = plugin.name.partition("@")[0]
+        manifest = _quiet_json(root / _PLUGIN_MANIFEST)
+        added = [path for path in listed_paths(manifest.get("skills")) if is_inside_plugin(path)]
+        if not added and not os.path.isdir(root / "skills"):
+            found = [read_skill(root, warnings)] if os.path.lexists(root / SKILL_FILE) else []
+        else:
+            found = []
+            for directory in ("skills", *added):
+                found.extend(skills_at(root / directory, warnings, include_hidden=True))
+
+        items = []
+        for skill in found:
+            fields = skill.fields or {}
+            name = fields.get("name") or (prefix if skill.path == root else skill.path.name)
+            full_name = name if name.startswith(f"{prefix}:") else f"{prefix}:{name}"
+            status = Status.BROKEN if skill.broken else settings.plugin_skill_status(full_name)
+            item = skill_item(self.id, skill, plugin.scope, status)
+            item.description = fields.get("description") or _first_line(skill.body)
+            items.append(mark_bundled(item, plugin, full_name))
+        return items
+
 
 class _Settings:
     """Settings layers. Merged views give later layers precedence."""
@@ -191,15 +232,26 @@ class _Settings:
                 rules.extend(permissions["deny"])
         return rules
 
+    def _is_denied(self, name: str) -> bool:
+        for rule in self._deny_rules():
+            if rule == "Skill":
+                return True
+            match = _DENY_RULE.match(rule) if isinstance(rule, str) else None
+            if match and match[1] in (name, "*"):
+                return True
+        return False
+
+    def plugin_skill_status(self, name: str) -> Status:
+        """`skillOverrides` doesn't apply to plugin skills, per the skills documentation."""
+        if not self.reliable:
+            return Status.UNKNOWN
+        return Status.DISABLED if self._is_denied(name) else Status.ENABLED
+
     def skill_status(self, name: str) -> Status:
         if not self.reliable:
             return Status.UNKNOWN
-        for rule in self._deny_rules():
-            if rule == "Skill":
-                return Status.DISABLED
-            match = _DENY_RULE.match(rule) if isinstance(rule, str) else None
-            if match and match[1] in (name, "*"):
-                return Status.DISABLED
+        if self._is_denied(name):
+            return Status.DISABLED
         override = self._merged_dict("skillOverrides").get(name, "on")
         if override == "off":
             return Status.DISABLED

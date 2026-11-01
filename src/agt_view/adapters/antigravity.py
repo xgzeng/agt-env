@@ -12,7 +12,10 @@ from agt_view.adapters.base import (
     Context,
     first_existing,
     list_entries,
+    listed_paths,
     load_once,
+    loads_skills,
+    mark_bundled,
     mcp_item,
     plugin_item,
     read_json,
@@ -73,10 +76,31 @@ class Antigravity:
             (shared_dir / "plugins", Scope.USER, Status.ENABLED),
             (workspace_dir / "plugins", Scope.PROJECT, project_status),
         ):
+            plugins = self._plugins(root, scope, states, state_ok, report.warnings, default)
+            report.items.extend(plugins)
             report.items.extend(
-                self._plugins(root, scope, states, state_ok, report.warnings, default)
+                load_once(
+                    [
+                        skill
+                        for plugin in plugins
+                        if loads_skills(plugin)
+                        for skill in self._plugin_skills(plugin, report.warnings)
+                    ]
+                )
             )
         return report
+
+    def _plugin_skills(self, plugin: Item, warnings: list[str]) -> list[Item]:
+        manifest, _ = read_json(_plugin_manifest(plugin.source_path), [])
+        items = []
+        # A manifest's paths add to the default directory.
+        for path in ("skills", *listed_paths(manifest.get("skills"))):
+            found, scan_warnings = scan_skills(plugin.source_path / path, include_hidden=True)
+            warnings.extend(scan_warnings)
+            for skill in found:
+                item = self._skill(skill, plugin.scope, plugin.status)
+                items.append(mark_bundled(item, plugin, f"{plugin.name}:{item.name}"))
+        return items
 
     def _skill(self, skill: FoundSkill, scope: Scope, default: Status) -> Item:
         status = default if not skill.broken and skill.fields is not None else Status.BROKEN
@@ -110,10 +134,8 @@ class Antigravity:
     ) -> list[Item]:
         items = []
         for path in list_entries(root, warnings):
-            manifest_path = first_existing(
-                path / "plugin.json", path / ".antigravity-plugin" / "plugin.json"
-            )
-            if manifest_path is None:
+            manifest_path = _plugin_manifest(path)
+            if not os.path.exists(manifest_path):
                 continue
             manifest, _ = read_json(manifest_path, [])
             description = manifest.get("description")
@@ -129,6 +151,11 @@ class Antigravity:
                 )
             )
         return items
+
+
+def _plugin_manifest(plugin_dir: Path) -> Path:
+    path = plugin_dir / "plugin.json"
+    return path if os.path.exists(path) else plugin_dir / ".antigravity-plugin" / "plugin.json"
 
 
 def _plugin_status(name: str, states: dict, state_ok: bool, default: Status) -> Status:

@@ -6,8 +6,10 @@ compares results with the real agent.
 """
 
 import fnmatch
+import glob
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -29,14 +31,15 @@ from agt_view.model import AgentReport, Item, Scope, Status
 from agt_view.skills import (
     SKILL_FILE,
     FoundSkill,
-    read_skill,
     scan_markdown_skills,
     scan_skills,
+    skills_at,
 )
 
 _SKILL_SCAN_DEPTH = 32  # Discovery is recursive; this only bounds a pathological tree.
 _EXTENSION_SUFFIXES = (".ts", ".js")
 _MCP_EXTENSION = "builtin:mcp"
+_GIT_SOURCE = re.compile(r"(?:git:|https?://|ssh://)(?:[^/@]+@)?([^:@]+?)(?:\.git)?(?:@[^/]*)?")
 
 
 @dataclass
@@ -79,6 +82,7 @@ class _Resources:
 # Skill sources, highest precedence first, as tested against Pi. See docs/agents/pi.md.
 _RANK_PROJECT_LISTED, _RANK_PI_SKILLS, _RANK_PROJECT_AGENTS = 0, 1, 2
 _RANK_USER_LISTED, _RANK_AGENT_DIR, _RANK_USER_AGENTS = 3, 4, 5
+_RANK_PACKAGES = 6  # Each package ranks below the one before it.
 # A turned-off project server still replaces the user's.
 _SERVER_NAME_TAKERS = frozenset({Status.ENABLED, Status.DISABLED})
 
@@ -174,6 +178,22 @@ class Pi:
             )
             rank_of[id(item)] = rank
             items.append(item)
+        for rank, (source, scope, skills) in enumerate(
+            _package_skills(layers, trust, report.warnings), _RANK_PACKAGES
+        ):
+            default = Status.ENABLED if scope is Scope.USER else trust
+            for skill in skills:
+                # A package's skills ignore the `skills` setting; its own entry filters them.
+                status = _skill_status(
+                    skill, default, _Resources(bases[scope]), reliable, bases[scope]
+                )
+                item = skill_item(
+                    self.id, skill, scope, status, "has no description, which Pi requires"
+                )
+                item.native_kind = "package skill"
+                item.details["plugin"] = source
+                rank_of[id(item)] = rank
+                items.append(item)
         items = load_once(items)
         # An untrusted project's skills don't load, so they can't take a name. In one source, the
         # later skill wins.
@@ -287,14 +307,106 @@ def _server_status(enabled: object, default: Status, mcp_off: bool, reliable: bo
 
 
 def _listed_skills(path: Path, warnings: list[str]) -> list[FoundSkill]:
-    """Resolve a settings entry: a SKILL.md, a skill directory, or a directory of skills."""
-    if path.name == SKILL_FILE:
-        path = path.parent
-    if os.path.lexists(path / SKILL_FILE):
-        return [read_skill(path, warnings)]
-    skills, scan_warnings = scan_skills(path, max_depth=_SKILL_SCAN_DEPTH)
-    warnings.extend(scan_warnings)
-    return skills
+    return skills_at(path, warnings, max_depth=_SKILL_SCAN_DEPTH)
+
+
+def _package_skills(
+    layers: list, trust: Status, warnings: list[str]
+) -> list[tuple[str, Scope, list[FoundSkill]]]:
+    """Return each package's skills, highest precedence first."""
+    # A trusted project's entry replaces the personal entry for the same package.
+    ordered = reversed(layers) if trust is Status.ENABLED else layers
+    packages: dict[str, tuple[str, Scope, list[FoundSkill]]] = {}
+    for settings, base, scope, _ in ordered:
+        entries = settings.get("packages")
+        for entry in entries if isinstance(entries, list) else ():
+            source = entry.get("source") if isinstance(entry, dict) else entry
+            root = _package_dir(source, base) if isinstance(source, str) else None
+            if root is None or (identity := os.path.realpath(root)) in packages:
+                continue
+            found = _declared_skills(root, warnings)
+            chosen = entry.get("skills") if isinstance(entry, dict) else None
+            if isinstance(chosen, list):
+                found = [skill for skill in found if _is_chosen(skill.path, root, chosen)]
+            packages[identity] = (without_credentials(source), scope, found)
+    return list(packages.values())
+
+
+def _package_dir(source: str, base: Path) -> Path | None:
+    """Find where Pi keeps a package. It may not be installed, so this can name nothing."""
+    if source.startswith("npm:"):
+        spec = source[len("npm:") :]
+        # An `@` at the start belongs to a scoped name, not a version.
+        name, at, _ = spec[1:].rpartition("@")
+        managed = Path("npm") / "node_modules" / (spec[: len(name) + 1] if at else spec)
+    elif match := _GIT_SOURCE.fullmatch(source):
+        managed = Path("git") / match[1]
+    elif ":" in source:
+        return None
+    else:
+        root = base / Path(source).expanduser()
+        return root if os.path.isdir(root) else None
+    if ".." in managed.parts:
+        return None
+    return base / managed if os.path.isdir(base / managed) else None
+
+
+def _declared_skills(root: Path, warnings: list[str]) -> list[FoundSkill]:
+    """A `pi` key in package.json replaces the conventional `skills` directory."""
+    try:
+        with open(root / "package.json", encoding="utf-8") as file:
+            package = json.load(file)
+    except (OSError, ValueError):
+        package = None
+    manifest = package.get("pi") if isinstance(package, dict) else None
+    if not isinstance(manifest, dict):
+        return _skills_in(root / "skills", warnings)
+    declared = manifest.get("skills")
+    entries = (
+        [entry for entry in declared if isinstance(entry, str)]
+        if isinstance(declared, list)
+        else []
+    )
+    found: list[FoundSkill] = []
+    for entry in entries:
+        if not entry.startswith("!"):
+            for match in sorted(glob.glob(f"{glob.escape(str(root))}/{entry}")):
+                found.extend(_skills_in(Path(os.path.normpath(match)), warnings))
+    excluded = [entry[1:] for entry in entries if entry.startswith("!")]
+    return [
+        skill
+        for skill in found
+        if not any(_matches(skill.path, root, pattern) for pattern in excluded)
+    ]
+
+
+def _skills_in(path: Path, warnings: list[str]) -> list[FoundSkill]:
+    found = _listed_skills(path, warnings)
+    if not os.path.lexists(path / SKILL_FILE):
+        standalone, more_warnings = scan_markdown_skills(path)
+        found += standalone
+        warnings.extend(more_warnings)
+    return found
+
+
+def _matches(path: Path, root: Path, pattern: str) -> bool:
+    relative = os.path.relpath(path, root)
+    return any(
+        fnmatch.fnmatchcase(candidate, pattern)
+        for candidate in (relative, f"{relative}/{SKILL_FILE}", path.name)
+    )
+
+
+def _is_chosen(path: Path, root: Path, patterns: list[object]) -> bool:
+    """Apply a package entry's filter: `[]` loads nothing, and exclusions alone keep the rest."""
+    chosen = [entry for entry in patterns if isinstance(entry, str)]
+    excluded = [entry[1:] for entry in chosen if entry[:1] in ("!", "-")]
+    included = [entry.lstrip("+") for entry in chosen if entry[:1] not in ("!", "-")]
+    if not chosen or any(_matches(path, root, pattern) for pattern in excluded):
+        return False
+    return not included or any(
+        _matches(path, root, pattern.removeprefix("./")) for pattern in included
+    )
 
 
 def _skill_status(

@@ -14,6 +14,7 @@ _ESCAPE_SEQUENCE = re.compile(
 )
 COLUMNS = ("SCOPE/KIND", "NAME", "STATUS")
 _DETAIL_LABELS = {
+    "plugin": "Plugin",
     "transport": "Transport",
     "command": "Command",
     "url": "URL",

@@ -47,7 +47,17 @@ These pages are long, and parts of the config, MCP, and plugin pages were read t
 
 | Rule | Evidence |
 |---|---|
-| Enablement is `[plugins."name@marketplace"] enabled = true` | Doc |
+| Enablement is `[plugins."name@marketplace"] enabled = true` | Doc + Tested |
+| A plugin's skills load only when its entry is enabled. A cached plugin with no entry contributes none | Tested |
+| A trusted project's entry decides over the user's, in either direction. An untrusted project's doesn't count | Tested |
+| Only the highest cached version counts, even if it has no valid manifest, and then the plugin contributes no skills | Tested |
+| A manifest at `.codex-plugin/plugin.json` is required for skills | Tested |
+| Skills are in `skills/`, or the manifest's `skills`, a path or list of `./` paths, which replaces it. If no path is valid, `skills/` is used | Tested |
+| A path is invalid without `./`, when it leaves the plugin, or when it's the plugin root | Tested |
+| A plugin skill's name is `<manifest name>:<name>`, using the name of the version's directory if the manifest has none | Tested |
+| Plugin skills use the same rules as others: six levels deep, hidden directories skipped, and `description` required | Tested |
+| `[[skills.config]]` can disable a plugin skill | Tested |
+| A plugin skill and a same-named skill elsewhere both load | Tested |
 
 ## Findings not in the documentation
 
@@ -64,22 +74,25 @@ These pages are long, and parts of the config, MCP, and plugin pages were read t
 - **Invalid servers:** an entry with neither `command` nor `url` makes Codex reject the entire config file.
 - **Missing `CODEX_HOME`:** `codex app-server` exited when the directory didn't exist.
 - **Listing commands:** `codex mcp list --json` works, and `codex app-server` offers `skills/list` and `plugin/list`. The docs don't mention them.
-- **Plugin files:** `plugins/cache/<marketplace>/<name>/<version>` holds plugins, with a manifest at `.codex-plugin/plugin.json`. This was seen on a real install, not confirmed by a test.
+- **Plugin files:** `plugins/cache/<marketplace>/<name>/<version>` holds plugins, with a manifest at `.codex-plugin/plugin.json`.
+- **Version order:** versions compare as semver when both are in `x.y.z` form, and otherwise as text. So `10.0.0` beats `9.0.0`, while `1.9` beats `1.10` and `local` beats `1.0.0`.
+- **Plugin skill scope:** `skills/list` calls a plugin skill `user`, even when a project's entry enabled it. `agt-view` uses the scope of the entry that enables the plugin.
 - **Cached plugins:** the cache can hold plugins with no config entry, so being cached doesn't show that a plugin is enabled.
 
 ## How `agt-view` reports this
 
 - The user's entry is `shadowed` by a trusted project's entry, even when the project's turns the server off. The project's row shows the merged result.
 - Duplicate skills all load, so they're never `shadowed`.
+- The user's plugin entry is `shadowed` by a trusted project's entry, even when the project's turns the plugin off.
 
 ## Assumptions
 
-- Plugin status relies on the documented config key and the cache layout above. `plugin/list` returned nothing without a marketplace, so plugins couldn't be compared with the real agent.
+- A plugin's own row relies on the documented config key and the cache layout above. `plugin/list` returned nothing without a marketplace, so only its skills could be compared with the real agent.
 - A plugin marked enabled with no cached copy is reported as `broken`.
 - `/etc/codex/skills` wasn't tested, to avoid writing outside the temporary `HOME`.
 
 ## Not covered by `agt-view`
 
-- Skills and MCP servers bundled in plugins.
+- MCP servers bundled in plugins.
 - Parent project directories, because `agt-view` treats the current directory as the project root.
 - Plugins available only through an account.

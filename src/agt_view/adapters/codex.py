@@ -5,8 +5,9 @@ docs/agents/codex.md. Update that file when these rules change. tests/test_codex
 compares results with the real agent.
 """
 
-import json
+import functools
 import os
+import re
 import tomllib
 from pathlib import Path
 
@@ -15,8 +16,13 @@ from agt_view.adapters.base import (
     MISSING_PLUGIN,
     Context,
     config_dir,
+    is_inside_plugin,
+    listed_paths,
     load_once,
+    loads_skills,
+    mark_bundled,
     mark_shadowed,
+    read_json,
     unique_roots,
 )
 from agt_view.mcp import remote_details, stdio_details
@@ -24,6 +30,10 @@ from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
 from agt_view.skills import FoundSkill, scan_skills
 
 _MAX_DEPTH = 6
+_PLUGIN_MANIFEST = Path(".codex-plugin") / "plugin.json"
+_SEMVER = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?")
+# A turned-off project entry still replaces the user's.
+_ENTRY_NAME_TAKERS = frozenset({Status.ENABLED, Status.DISABLED})
 
 
 class Codex:
@@ -68,20 +78,54 @@ class Codex:
             layers.append((project_config, Scope.PROJECT, project_path, trust))
         user_servers = (user_config or {}).get("mcp_servers")
         servers_by_layer = []
+        plugins_by_layer = []
         for config, scope, path, default in layers:
             # A trusted project's entry is merged over the user's, field by field.
             base = user_servers if scope is Scope.PROJECT and trust is Status.ENABLED else None
             servers = self._mcp_servers(config, scope, path, default, base)
             servers_by_layer.append(servers)
             report.items.extend(servers)
-            report.items.extend(self._plugins(config, scope, path, default, codex_home))
+            plugins_by_layer.append(self._plugins(config, scope, path, default, codex_home))
         if trust is Status.ENABLED:
             # A project entry that turns a server off still replaces the user's.
             mark_shadowed(
                 [item for servers in reversed(servers_by_layer) for item in servers],
-                winners=frozenset({Status.ENABLED, Status.DISABLED}),
+                winners=_ENTRY_NAME_TAKERS,
             )
+            _mark_replaced_plugins(plugins_by_layer, project_path)
+        plugins = [plugin for layer in plugins_by_layer for plugin in layer]
+        report.items.extend(plugins)
+        report.items.extend(
+            load_once(
+                [
+                    skill
+                    for plugin in plugins
+                    if loads_skills(plugin)
+                    for skill in self._plugin_skills(plugin, disabled, report.warnings)
+                ]
+            )
+        )
         return report
+
+    def _plugin_skills(
+        self, plugin: Item, disabled: set[str] | None, warnings: list[str]
+    ) -> list[Item]:
+        root = _active_version(plugin.source_path)
+        manifest = None if root is None else _plugin_manifest(root)
+        if manifest is None:
+            return []
+        # A manifest's paths replace the default, unless none of them is valid.
+        paths = [path for path in listed_paths(manifest.get("skills")) if _is_skill_path(path)]
+        # Without a name in the manifest, Codex uses the name of the version's directory.
+        prefix = manifest.get("name") if isinstance(manifest.get("name"), str) else root.name
+        items = []
+        for path in paths or ["skills"]:
+            found, scan_warnings = scan_skills(root / path, max_depth=_MAX_DEPTH)
+            warnings.extend(scan_warnings)
+            for skill in found:
+                item = self._skill(skill, plugin.scope, disabled)
+                items.append(mark_bundled(item, plugin, f"{prefix}:{item.name}"))
+        return items
 
     def _skill(self, skill: FoundSkill, scope: Scope, disabled: set[str] | None) -> Item:
         fields = skill.fields or {}
@@ -209,21 +253,62 @@ def _server_details(entry: object) -> dict[str, object] | None:
     return None
 
 
-def _plugin_description(directory: Path) -> str:
-    """Read the newest cached version's manifest. A bad one just means less detail."""
+def _mark_replaced_plugins(plugins_by_layer: list[list[Item]], project_path: Path) -> None:
+    """A trusted project's entry decides, even when it turns the plugin off."""
+    project = {item.name: item for item in plugins_by_layer[-1]}
+    for item in plugins_by_layer[0] if len(plugins_by_layer) > 1 else ():
+        replacement = project.get(item.name)
+        if (
+            replacement
+            and item.status is Status.ENABLED
+            and replacement.status in _ENTRY_NAME_TAKERS
+        ):
+            item.status = Status.SHADOWED
+            item.findings.append(Finding("shadowed by the entry in", project_path))
+
+
+def _is_skill_path(path: str) -> bool:
+    return is_inside_plugin(path) and Path(path) != Path(".")
+
+
+def _compare_versions(left: str, right: str) -> int:
+    """Compare as semver when both are, otherwise as text, which is what Codex does."""
+    left_match, right_match = _SEMVER.fullmatch(left), _SEMVER.fullmatch(right)
+    if left_match and right_match:
+        left_key = [int(part) for part in left_match.groups()[:3]]
+        right_key = [int(part) for part in right_match.groups()[:3]]
+        if left_key != right_key:
+            return -1 if left_key < right_key else 1
+        left_pre, right_pre = left_match[4], right_match[4]
+        if left_pre is None or right_pre is None:
+            return (left_pre is None) - (right_pre is None)
+        left, right = left_pre, right_pre
+    return (left > right) - (left < right)
+
+
+def _active_version(directory: Path) -> Path | None:
+    """Codex uses only the highest cached version, even when that one has no valid manifest."""
     try:
-        versions = sorted(os.listdir(directory), reverse=True)
+        versions = [name for name in os.listdir(directory) if os.path.isdir(directory / name)]
     except OSError:
-        return ""
-    for version in versions:
-        try:
-            with open(directory / version / ".codex-plugin" / "plugin.json", encoding="utf-8") as f:
-                manifest = json.load(f)
-        except (OSError, ValueError):
-            continue
-        description = manifest.get("description") if isinstance(manifest, dict) else None
-        return description if isinstance(description, str) else ""
-    return ""
+        return None
+    if not versions:
+        return None
+    return directory / max(versions, key=functools.cmp_to_key(_compare_versions))
+
+
+def _plugin_manifest(root: Path) -> dict | None:
+    path = root / _PLUGIN_MANIFEST
+    manifest, ok = read_json(path, [])
+    return manifest if ok and os.path.isfile(path) else None
+
+
+def _plugin_description(directory: Path) -> str:
+    """Read the active version's manifest. A bad one just means less detail."""
+    root = _active_version(directory)
+    manifest = None if root is None else _plugin_manifest(root)
+    description = manifest.get("description") if manifest else None
+    return description if isinstance(description, str) else ""
 
 
 def _skill_status(skill: FoundSkill, disabled: set[str] | None) -> Status:

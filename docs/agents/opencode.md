@@ -83,6 +83,7 @@ Permissions control skills:
 | A package directory uses `package.json` exports, or a root `server` or `index` file | Doc, Tested for `index.ts` |
 | V1 plugin implementations don't run in V2 | Doc + Tested |
 | A `-` prefix on an ID or wildcard disables a plugin | Doc + Tested |
+| A plugin directory's `skills/` isn't read, so it contributes no skills | Tested |
 
 ## Findings not in the documentation
 

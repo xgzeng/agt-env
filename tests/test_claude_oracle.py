@@ -10,6 +10,7 @@ import os
 import subprocess
 
 import pytest
+from conftest import write_skill
 
 from agt_view.adapters.base import Context
 from agt_view.adapters.claude_code import ClaudeCode
@@ -193,3 +194,77 @@ def test_plugins_match_claude_listing(tmp_path):
             assert plugin_id == "unset@mk"
         else:
             assert (item.status is Status.ENABLED) is enabled
+
+
+def installed_through_a_marketplace(home, project, build, manifest):
+    marketplace = home / "marketplace"
+    (marketplace / ".claude-plugin").mkdir(parents=True)
+    (marketplace / ".claude-plugin" / "marketplace.json").write_text(
+        json.dumps(
+            {
+                "name": "m",
+                "owner": {"name": "o"},
+                "plugins": [{"name": "p", "source": "./p", "description": "d"}],
+            }
+        )
+    )
+    root = marketplace / "p"
+    root.mkdir()
+    if manifest is not None:
+        (root / ".claude-plugin").mkdir()
+        (root / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"name": "p", "version": "1.0.0", **manifest})
+        )
+    build(root)
+    claude(home, project, "plugin", "marketplace", "add", str(marketplace))
+    claude(home, project, "plugin", "install", "p@m")
+
+
+@pytest.mark.parametrize(
+    ("manifest", "layout"),
+    [
+        (None, ["skills/a"]),
+        ({}, ["skills/a", "skills/b"]),
+        ({}, ["skills/group/nested"]),
+        ({}, ["skills/.hidden"]),
+        ({}, ["."]),
+        ({}, [".", "skills/a"]),
+        ({"skills": "./extra"}, ["extra/a", "skills/b"]),
+        ({"skills": ["./extra", "./more"]}, ["extra/a", "more/b", "skills/c"]),
+        ({"skills": "./one"}, ["one"]),
+        ({"skills": "./"}, ["sub", "skills/a"]),
+    ],
+)
+def test_plugin_skills_match_claude_details(tmp_path, manifest, layout):
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+
+    def build(root):
+        for directory in layout:
+            write_skill(root / directory, "description: d")
+
+    installed_through_a_marketplace(home, project, build, manifest)
+    details = claude(home, project, "plugin", "details", "p@m")
+    line = next(line for line in details.splitlines() if "Skills (" in line)
+    theirs = {f"p:{name.strip()}" for name in line.partition(")")[2].split(",") if name.strip()}
+    ours = {
+        item.name
+        for item in scan(tmp_path, home, project)
+        if item.kind is Kind.SKILL and item.status is Status.ENABLED
+    }
+    assert ours == theirs
+
+
+def test_only_a_disabled_plugin_hides_its_skills(tmp_path):
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+    installed_through_a_marketplace(
+        home, project, lambda root: write_skill(root / "skills" / "a", "description: d"), {}
+    )
+    assert "p:a" in {item.name for item in scan(tmp_path, home, project)}
+    claude(home, project, "plugin", "disable", "p@m")
+    enabled = [p["enabled"] for p in json.loads(claude(home, project, "plugin", "list", "--json"))]
+    assert enabled == [False]
+    assert "p:a" not in {item.name for item in scan(tmp_path, home, project)}

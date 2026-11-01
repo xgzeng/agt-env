@@ -29,7 +29,7 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 | Project skills are `.claude/skills/<name>/SKILL.md`, in the start directory and each parent up to the repository root, or the worktree root in a linked worktree | Doc |
 | Skills in `<subdir>/.claude/skills` load only once a file in that subdirectory is read or edited | Doc |
 | Enterprise skills are `.claude/skills/<name>/SKILL.md` in the managed directory | Doc |
-| Plugin skills are `<plugin>/skills/<name>/SKILL.md`, and are namespaced as `plugin:skill` | Doc |
+| Plugin skills are `<plugin>/skills/<name>/SKILL.md`, one level deep, and are namespaced as `plugin:skill` | Doc + Tested |
 | claude.ai account skills sync into `~/.claude/skills/synced` | Doc |
 | A skill entry can be a symlink to a directory, and is loaded once even if several locations point at it | Doc |
 | All frontmatter is optional. `name` defaults to the directory name, and `description` to the first non-empty body line | Doc |
@@ -65,12 +65,22 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 | Installed plugins are recorded in `plugins/installed_plugins.json` under the config directory | Tested |
 | `enabledPlugins` in settings holds `name@marketplace` keys with true or false, and later layers override earlier ones | Tested |
 | A plugin's manifest is `.claude-plugin/plugin.json`, which is optional | Doc + Tested |
+| The manifest's `skills`, a path or list of `./` paths, adds to `skills/`. Each is a directory of skills or one skill's folder | Doc + Tested |
+| A `SKILL.md` at the plugin root counts only with no `skills/` and no `skills` key | Doc + Tested |
+| `name` replaces the last segment of a plugin skill's name, and a name already carrying the prefix doesn't get it twice | Doc |
+| A root skill with no `name` is named after the plugin | Doc + Tested |
+| A plugin skill and a same-named skill elsewhere both load, because of the prefix | Doc |
+| Disabling a plugin unloads its skills | Doc |
+| `skillOverrides` doesn't affect plugin skills | Doc |
 
 ## Findings not in the documentation
 
 - **`installed_plugins.json` shape:** `{"version": 2, "plugins": {"name@marketplace": [{"scope", "installPath", "version", ...}]}}`. Local-scope entries also carry `projectPath`.
 - **Approvals in `.claude.json`:** `enabledMcpjsonServers` also works in the project's entry there, but only when the folder is trusted.
 - **Rejected servers:** the docs show a `Rejected` status, but `claude mcp list` left out a server rejected through `disabledMcpjsonServers`.
+- **Plugin skill listing:** `claude plugin details <id>` lists a plugin's skills, so tests compare with it. It lists a disabled plugin's skills too, so it says what a plugin contains rather than what loads. It also shows the folder name where the docs say `name` wins, so a differing `name` follows the docs.
+- **Manifest paths:** a `skills` path without `./`, or one that leaves the plugin, makes installing it fail.
+- **Hidden plugin skills:** `skills/.name` is listed, and a Markdown file directly under `skills/` isn't.
 - **Plugins not in `enabledPlugins`:** the docs say `defaultEnabled` is true by default, but `claude plugin list --json` reported an unset plugin as disabled. That plugin's marketplace wasn't installed, which may explain it.
 - **Synced skill layout:** `skills/synced/<bucket>/<skill>/SKILL.md` was seen on a real install, one level deeper than other skills.
 - **Synced plugins:** `claude plugin list` can report `name@synced` plugins that aren't in `installed_plugins.json`.
@@ -78,10 +88,12 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 
 ## Assumptions
 
+- A `Skill(plugin:skill)` deny rule blocks a plugin skill, because the docs describe rules by skill name. No listing shows this without signing in.
+- A skill from a plugin whose `enabledPlugins` entry is unset shows as `unknown`, like its plugin.
 - `CLAUDE_CONFIG_DIR` also moves personal skills. The docs say it moves settings, session history, and plugins, without mentioning skills.
 
 ## Not covered by `agt-view`
 
-- Skills and MCP servers bundled in plugins, and synced skills and plugins.
+- MCP servers bundled in plugins, and synced skills and plugins.
 - Parent and nested project directories, because `agt-view` treats the current directory as the project root.
 - Built-in skills and claude.ai connectors, which aren't in local config.

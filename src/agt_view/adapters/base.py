@@ -144,6 +144,32 @@ def plugin_item(
     )
 
 
+def loads_skills(plugin: Item) -> bool:
+    """A plugin that's turned off, replaced, or missing contributes no skills."""
+    return plugin.status not in (Status.DISABLED, Status.SHADOWED, Status.BROKEN)
+
+
+def mark_bundled(skill: Item, plugin: Item, name: str) -> Item:
+    """Make a skill item report the plugin it came from, under the name the agent gives it."""
+    skill.name = name
+    skill.native_kind = "plugin skill"
+    skill.details["plugin"] = plugin.name
+    if skill.status is Status.ENABLED:
+        skill.status = plugin.status
+    return skill
+
+
+def listed_paths(value: object) -> list[str]:
+    """Read a manifest field that holds a path or a list of paths."""
+    values = value if isinstance(value, list) else [value]
+    return [entry for entry in values if isinstance(entry, str)]
+
+
+def is_inside_plugin(path: str) -> bool:
+    """Whether a manifest path has the form `./something`, staying inside the plugin."""
+    return path.startswith("./") and ".." not in Path(path).parts
+
+
 def mark_shadowed(
     ranked: Iterable[Item],
     *,

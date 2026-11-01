@@ -326,3 +326,210 @@ def test_exclusions_apply_only_to_their_own_scope(machine_dirs, tmp_path, layer)
         i.scope.value for i in items if i.kind is Kind.PLUGIN and i.status is Status.ENABLED
     }
     assert ours_extensions == theirs_extensions
+
+
+def package(home, name="pk", pi=None, **skills):
+    root = home / name
+    root.mkdir(parents=True, exist_ok=True)
+    manifest = {"name": name}
+    if pi is not None:
+        manifest["pi"] = pi
+    write(root / "package.json", manifest)
+    for directory, skill_name in skills.items():
+        write_skill(root / directory.replace("__", "/"), f"name: {skill_name}\ndescription: d")
+    return root
+
+
+def conventional(home, agent, project):
+    return {"packages": [str(package(home, skills__a="a", skills__x__y__z="deep"))]}
+
+
+def declared_paths(home, agent, project):
+    root = package(home, pi={"skills": ["./res"]}, res__a="a", skills__b="b")
+    return {"packages": [str(root)]}
+
+
+def declared_globs(home, agent, project):
+    root = package(home, pi={"skills": ["./res/*", "!**/b/**"]}, res__a="a", res__b="b", res__c="c")
+    return {"packages": [str(root)]}
+
+
+def literal_exclusion_does_nothing(home, agent, project):
+    root = package(home, pi={"skills": ["./res/*", "!./res/b"]}, res__a="a", res__b="b")
+    return {"packages": [str(root)]}
+
+
+def manifest_without_skills(home, agent, project):
+    root = package(home, pi={"extensions": ["./e.ts"]}, skills__a="a")
+    return {"packages": [str(root)]}
+
+
+def empty_manifest(home, agent, project):
+    return {"packages": [str(package(home, pi={}, skills__a="a"))]}
+
+
+def no_package_json(home, agent, project):
+    write_skill(home / "bare" / "skills" / "a", "name: a\ndescription: d")
+    return {"packages": [str(home / "bare")]}
+
+
+def standalone(home, agent, project):
+    root = package(home)
+    write(root / "skills" / "solo.md", "---\nname: solo\ndescription: d\n---\nBody\n")
+    return {"packages": [str(root)]}
+
+
+def filtered(*chosen):
+    def build(home, agent, project):
+        root = package(home, skills__a="a", skills__b="b")
+        return {"packages": [{"source": str(root), "skills": list(chosen)}]}
+
+    return build
+
+
+def relative_source(home, agent, project):
+    package(agent, "rel", skills__a="a")
+    return {"packages": ["./rel"]}
+
+
+def installed(relative, source):
+    def build(home, agent, project):
+        write_skill(agent / relative / "skills" / "a", "name: a\ndescription: d")
+        write(agent / relative / "package.json", {"name": "x", "version": "1.0.0"})
+        return {"packages": [source]}
+
+    return build
+
+
+def setting_exclusion_is_ignored(home, agent, project):
+    return {"packages": [str(package(home, skills__a="a"))], "skills": ["!**/a/**"]}
+
+
+def clash(where):
+    def build(home, agent, project):
+        write_skill(where(home, agent, project) / "a", "name: a\ndescription: d")
+        settings = {"packages": [str(package(home, skills__a="a"))]}
+        if where is listed_dir:
+            settings["skills"] = [str(home / "listed")]
+        return settings
+
+    return build
+
+
+def listed_dir(home, agent, project):
+    return home / "listed"
+
+
+def two_packages(home, agent, project):
+    first, second = package(home, "one", skills__a="a"), package(home, "two", skills__a="a")
+    return {"packages": [str(first), str(second)]}
+
+
+def same_package_twice_named(home, agent, project):
+    root = package(home, skills__x__a="a", skills__y__a="a")
+    return {"packages": [str(root)]}
+
+
+def project_package(home, agent, project):
+    root = package(home, skills__a="a")
+    write(project / ".pi" / "settings.json", {"packages": [str(root)]})
+    return {"defaultProjectTrust": "always"}
+
+
+def project_package_untrusted(home, agent, project):
+    root = package(home, skills__a="a")
+    write(project / ".pi" / "settings.json", {"packages": [str(root)]})
+    return {}
+
+
+def project_replaces_user_entry(home, agent, project):
+    root = package(home, skills__a="a", skills__b="b")
+    write(
+        project / ".pi" / "settings.json",
+        {"packages": [{"source": str(root), "skills": ["skills/b"]}]},
+    )
+    return {"packages": [str(root)], "defaultProjectTrust": "always"}
+
+
+def untrusted_project_does_not_replace(home, agent, project):
+    root = package(home, skills__a="a")
+    write(project / ".pi" / "settings.json", {"packages": [{"source": str(root), "skills": []}]})
+    return {"packages": [str(root)]}
+
+
+def project_beats_user_package(home, agent, project):
+    user, ours = package(home, "up", skills__a="a"), package(home, "pp", skills__a="a")
+    write(project / ".pi" / "settings.json", {"packages": [str(ours)]})
+    return {"packages": [str(user)], "defaultProjectTrust": "always"}
+
+
+def project_managed(relative, source):
+    def build(home, agent, project):
+        write_skill(project / ".pi" / relative / "skills" / "a", "name: a\ndescription: d")
+        write(project / ".pi" / relative / "package.json", {"name": "x", "version": "1.0.0"})
+        write(project / ".pi" / "settings.json", {"packages": [source]})
+        return {"defaultProjectTrust": "always"}
+
+    return build
+
+
+GIT_CHECKOUT = "git/github.com/acme/tools"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        conventional,
+        declared_paths,
+        declared_globs,
+        literal_exclusion_does_nothing,
+        manifest_without_skills,
+        empty_manifest,
+        no_package_json,
+        standalone,
+        filtered(),
+        filtered("!**/a/**"),
+        filtered("skills/b"),
+        filtered("skills/*"),
+        relative_source,
+        setting_exclusion_is_ignored,
+        two_packages,
+        same_package_twice_named,
+        project_package,
+        project_package_untrusted,
+        project_replaces_user_entry,
+        untrusted_project_does_not_replace,
+        project_beats_user_package,
+        clash(lambda home, agent, project: agent / "skills"),
+        clash(lambda home, agent, project: project / ".pi" / "skills"),
+        clash(lambda home, agent, project: home / ".agents" / "skills"),
+        clash(listed_dir),
+        installed(GIT_CHECKOUT, "git:github.com/acme/tools"),
+        installed(GIT_CHECKOUT, "git:github.com/acme/tools@v1"),
+        installed(GIT_CHECKOUT, "https://github.com/acme/tools"),
+        installed(GIT_CHECKOUT, "https://github.com/acme/tools.git"),
+        installed(GIT_CHECKOUT, "ssh://git@github.com/acme/tools"),
+        installed("npm/node_modules/acme", "npm:acme"),
+        installed("npm/node_modules/@acme/tools", "npm:@acme/tools@1.0.0"),
+        project_managed(GIT_CHECKOUT, "git:github.com/acme/tools"),
+        project_managed("npm/node_modules/acme", "npm:acme"),
+    ],
+)
+def test_package_skills_match(machine_dirs, tmp_path, build):
+    home, project = machine_dirs[:2]
+    agent = home / ".pi" / "agent"
+    agent.mkdir(parents=True, exist_ok=True)
+    write(agent / "settings.json", build(home, agent, project))
+
+    theirs = {
+        os.path.realpath(command["path"] if "path" in command else command["sourceInfo"]["path"])
+        for command in their_commands(home, project)
+        if command["name"].startswith("skill:")
+    }
+    ours = set()
+    for item in scan(tmp_path, home, project):
+        if item.kind is Kind.SKILL and item.status is Status.ENABLED:
+            standalone_file = item.source_path.suffix == ".md"
+            file = item.source_path if standalone_file else item.source_path / "SKILL.md"
+            ours.add(os.path.realpath(file))
+    assert ours == theirs

@@ -113,3 +113,67 @@ def test_blank_config_is_valid_but_malformed_is_not(dirs, tmp_path):
     config.write_text("{ not json")
     assert "No MCP servers" not in agy(home, project, "mcp", "list")
     assert Antigravity().scan(context).warnings
+
+
+def skill(directory, frontmatter="name: a\ndescription: d"):
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "SKILL.md").write_text(f"---\n{frontmatter}\n---\nBody\n")
+
+
+def manifest_key(value):
+    def build(root):
+        write(root / "plugin.json", {"name": "p", "skills": value})
+        skill(root / "extra" / "x", "name: x\ndescription: d")
+        skill(root / "skills" / "y", "name: y\ndescription: d")
+
+    return build
+
+
+def plain_layout(*directories, frontmatter="name: a\ndescription: d"):
+    def build(root):
+        write(root / "plugin.json", {"name": "p"})
+        for directory in directories:
+            skill(root / directory, frontmatter)
+
+    return build
+
+
+def escaping_key(root):
+    write(root / "plugin.json", {"name": "p", "skills": "../outside"})
+    skill(root.parent / "outside" / "x", "name: x\ndescription: d")
+    skill(root / "skills" / "y", "name: y\ndescription: d")
+
+
+def without_frontmatter(root):
+    write(root / "plugin.json", {"name": "p"})
+    (root / "skills" / "plain").mkdir(parents=True)
+    (root / "skills" / "plain" / "SKILL.md").write_text("Body only\n")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        plain_layout("skills/folder"),
+        plain_layout("skills/folder", frontmatter="description: d"),
+        plain_layout("skills/a/b"),
+        plain_layout("skills/.hidden"),
+        plain_layout("."),
+        manifest_key("./extra"),
+        manifest_key(["./extra"]),
+        escaping_key,
+        without_frontmatter,
+    ],
+)
+def test_plugin_skills_match(dirs, tmp_path, build):
+    home, project = dirs
+    plugins = home / ".gemini" / "config" / "plugins"
+    build(plugins / "p")
+
+    listed = json.loads(agy(home, project, "plugin", "list", "--json"))
+    theirs = {f"p:{name}" for plugin in listed for name in plugin.get("skills") or ()}
+    ours = {
+        item.name
+        for item in scan(tmp_path, home, project)
+        if item.kind is Kind.SKILL and item.status is Status.ENABLED
+    }
+    assert ours == theirs

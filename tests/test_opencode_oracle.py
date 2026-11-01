@@ -402,3 +402,13 @@ def test_compatibility_plugin_controls_compatibility_skills(api):
     ours = {i.name for i in scan(api, Kind.SKILL) if i.status is Status.ENABLED}
     assert theirs == {"own", "p-own"}
     assert ours == theirs
+
+
+def test_a_plugin_folder_contributes_no_skills(api):
+    plugin = api.home / ".config" / "opencode" / "plugins" / "with-skill"
+    write(plugin / "index.ts", PLUGIN)
+    write_skill(plugin / "skills" / "inside", "name: inside\ndescription: d")
+    write_skill(api.home / ".config" / "opencode" / "skills" / "control", "description: d")
+    theirs = {skill["id"] for skill in api("/api/skill")}
+    assert "control" in theirs and "inside" not in theirs
+    assert "inside" not in {item.name for item in scan(api, Kind.SKILL)}

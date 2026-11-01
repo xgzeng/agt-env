@@ -154,7 +154,7 @@ agent-d  installed, not configured
 - **FR-6 (P0):** Treat items that resolve to the same real path as shared, naming the other agents under `--detail`, while still listing them under each agent.
 - **FR-8 (P1):** When an agent's precedence rules mean a same-named item is used instead, report the item as `shadowed` and show a finding naming the winner. Only rules with evidence count, so an agent whose rule isn't known is never flagged.
 - **FR-23 (P1):** Show why each `broken` item is broken. The reason is fixed text, never file contents.
-- **FR-9 (P1):** List skills bundled in enabled plugins, with namespaced names such as `my-plugin:my-skill`.
+- **FR-9 (P1):** List skills that plugins and packages bring, under the name the agent gives them, such as `my-plugin:my-skill`, and with `--detail` name the plugin. A skill follows its plugin's status, and one whose plugin is off or missing isn't listed.
 - **FR-10 (P0):** Only treat a directory as a skill if it meets the agent's definition. A directory that only groups other skills must be descended into or skipped, not counted.
 - **FR-20 (P0):** Resolve locations from the environment, not fixed paths: honor `HOME`, XDG variables, and each agent's documented config-directory overrides. When an override moves an agent's location away from its default, the output shows the location in use and the variable that set it in the agent's header.
 - **FR-21 (P0):** Work from any starting state. With no agents detected, or an agent's directories missing or unreadable, the tool still succeeds and says what it found. A missing location isn't a warning; an unreadable one is.

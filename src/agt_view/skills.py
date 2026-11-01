@@ -79,6 +79,19 @@ def scan_skills(
     return found, warnings
 
 
+def skills_at(
+    path: Path, warnings: list[str], *, max_depth: int = 1, include_hidden: bool = False
+) -> list[FoundSkill]:
+    """Read what a listed path names: a SKILL.md, a skill directory, or a directory of skills."""
+    if path.name == SKILL_FILE:
+        path = path.parent
+    if os.path.lexists(path / SKILL_FILE):
+        return [read_skill(path, warnings)]
+    skills, scan_warnings = scan_skills(path, max_depth=max_depth, include_hidden=include_hidden)
+    warnings.extend(scan_warnings)
+    return skills
+
+
 def scan_markdown_skills(root: Path) -> tuple[list[FoundSkill], list[str]]:
     """Return standalone `*.md` skills directly under root."""
     found: list[FoundSkill] = []

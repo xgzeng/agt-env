@@ -215,3 +215,172 @@ FROM_PROJECT = "1"
     assert ours == {
         name: (server["enabled"], server["transport"]["command"]) for name, server in theirs.items()
     }
+
+
+PLUGIN_ON = '[plugins."p@m"]\nenabled = true\n'
+
+
+def codex_plugin(home, version="1.0.0", manifest=None):
+    root = home / ".codex" / "plugins" / "cache" / "m" / "p" / version
+    manifest = {"name": "p"} if manifest is None else manifest
+    (root / ".codex-plugin").mkdir(parents=True)
+    (root / ".codex-plugin" / "plugin.json").write_text(json.dumps(manifest))
+    return root
+
+
+def plain_plugin(home):
+    write_skill(codex_plugin(home) / "skills" / "a", "name: a\ndescription: d")
+
+
+def renamed_plugin(home):
+    root = codex_plugin(home, manifest={"name": "renamed"})
+    write_skill(root / "skills" / "folder", "name: from-field\ndescription: d")
+
+
+def unnamed_plugin(home):
+    write_skill(codex_plugin(home, manifest={}) / "skills" / "a", "name: a\ndescription: d")
+
+
+def replacing_paths(home):
+    root = codex_plugin(home, manifest={"name": "p", "skills": ["./x/", "./y/"]})
+    write_skill(root / "x" / "a", "name: a\ndescription: d")
+    write_skill(root / "y" / "b", "name: b\ndescription: d")
+    write_skill(root / "skills" / "default", "name: default\ndescription: d")
+
+
+def invalid_path_falls_back(home):
+    root = codex_plugin(home, manifest={"name": "p", "skills": "../../outside/"})
+    write_skill(root.parent.parent / "outside" / "a", "name: a\ndescription: d")
+    write_skill(root / "skills" / "default", "name: default\ndescription: d")
+
+
+def versions(*names):
+    def build(home):
+        for name in names:
+            root = codex_plugin(home, version=name)
+            write_skill(root / "skills" / name, f"name: {name}\ndescription: d")
+
+    return build
+
+
+def highest_version_has_no_manifest(home):
+    write_skill(codex_plugin(home) / "skills" / "a", "name: a\ndescription: d")
+    (home / ".codex" / "plugins" / "cache" / "m" / "p" / "2.0.0").mkdir()
+
+
+def nested_and_hidden(home):
+    root = codex_plugin(home)
+    write_skill(root / "skills" / "a" / "b" / "c" / "d" / "e" / "f", "name: six\ndescription: d")
+    write_skill(
+        root / "skills" / "a" / "b" / "c" / "d" / "e" / "f" / "g", "name: seven\ndescription: d"
+    )
+    write_skill(root / "skills" / ".hidden", "name: hidden\ndescription: d")
+
+
+def same_name_as_a_user_skill(home):
+    write_skill(codex_plugin(home) / "skills" / "a", "name: a\ndescription: d")
+    write_skill(home / ".codex" / "skills" / "a", "name: a\ndescription: d")
+
+
+def no_description(home):
+    write_skill(codex_plugin(home) / "skills" / "a", "name: a")
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.parametrize(
+    ("config", "build"),
+    [
+        (PLUGIN_ON, plain_plugin),
+        ('[plugins."p@m"]\nenabled = false\n', plain_plugin),
+        ("", plain_plugin),
+        (PLUGIN_ON, renamed_plugin),
+        (PLUGIN_ON, unnamed_plugin),
+        (PLUGIN_ON, replacing_paths),
+        (PLUGIN_ON, invalid_path_falls_back),
+        (PLUGIN_ON, versions("9.0.0", "10.0.0")),
+        (PLUGIN_ON, versions("1.0.0", "1.0.0-beta")),
+        (PLUGIN_ON, versions("1.0.0-alpha", "1.0.0-beta")),
+        (PLUGIN_ON, versions("1.9", "1.10")),
+        (PLUGIN_ON, versions("0abc", "9.9.9")),
+        (PLUGIN_ON, versions("local", "1.0.0")),
+        (PLUGIN_ON, highest_version_has_no_manifest),
+        (PLUGIN_ON, nested_and_hidden),
+        (PLUGIN_ON, same_name_as_a_user_skill),
+        (PLUGIN_ON, no_description),
+    ],
+)
+def test_plugin_skills_match_codex_listing(tmp_path, config, build):
+    home, project = tmp_path / "home", tmp_path / "project"
+    (home / ".codex").mkdir(parents=True)
+    project.mkdir()
+    (home / ".codex" / "config.toml").write_text(config)
+    build(home)
+
+    listing = codex_skills(home, project)
+    theirs = {
+        os.path.realpath(skill["path"]): skill["name"]
+        for skill in listing["skills"]
+        if skill["scope"] != "system"
+    }
+    context = Context(home=home, cwd=project, env={"PATH": ""}, system_root=tmp_path / "system")
+    items = [item for item in Codex().scan(context).items if item.kind is Kind.SKILL]
+    ours = {
+        os.path.realpath(item.source_path / "SKILL.md"): item.name
+        for item in items
+        if item.status is Status.ENABLED and item.scope is not Scope.SYSTEM
+    }
+    assert ours == theirs
+    assert {os.path.realpath(error["path"]) for error in listing["errors"]} == {
+        os.path.realpath(item.source_path / "SKILL.md")
+        for item in items
+        if item.status is Status.BROKEN
+    }
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.parametrize(
+    ("user", "project_entry", "loads"),
+    [
+        ("", PLUGIN_ON, True),
+        (PLUGIN_ON, '[plugins."p@m"]\nenabled = false\n', False),
+        ('[plugins."p@m"]\nenabled = false\n', PLUGIN_ON, True),
+    ],
+)
+def test_trusted_project_decides_plugin_state(tmp_path, user, project_entry, loads):
+    home, project = tmp_path / "home", tmp_path / "project"
+    (home / ".codex").mkdir(parents=True)
+    (project / ".codex").mkdir(parents=True)
+    (home / ".codex" / "config.toml").write_text(
+        f'{user}\n[projects."{project}"]\ntrust_level = "trusted"\n'
+    )
+    (project / ".codex" / "config.toml").write_text(project_entry)
+    plain_plugin(home)
+
+    theirs = {s["name"] for s in codex_skills(home, project)["skills"] if s["scope"] != "system"}
+    assert theirs == ({"p:a"} if loads else set())
+    context = Context(home=home, cwd=project, env={"PATH": ""}, system_root=tmp_path / "system")
+    ours = {
+        item.name
+        for item in Codex().scan(context).items
+        if item.kind is Kind.SKILL
+        and item.status is Status.ENABLED
+        and item.scope is not Scope.SYSTEM
+    }
+    assert ours == theirs
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+def test_a_disabled_plugin_skill_matches_codex(tmp_path):
+    home, project = tmp_path / "home", tmp_path / "project"
+    (home / ".codex").mkdir(parents=True)
+    project.mkdir()
+    plain_plugin(home)
+    skill_file = home / ".codex/plugins/cache/m/p/1.0.0/skills/a/SKILL.md"
+    (home / ".codex" / "config.toml").write_text(
+        f'{PLUGIN_ON}\n[[skills.config]]\npath = "{skill_file}"\nenabled = false\n'
+    )
+    theirs = {s["name"]: s["enabled"] for s in codex_skills(home, project)["skills"]}
+    assert theirs["p:a"] is False
+    context = Context(home=home, cwd=project, env={"PATH": ""}, system_root=tmp_path / "system")
+    ours = {item.name: item.status for item in Codex().scan(context).items}
+    assert ours["p:a"] is Status.DISABLED
