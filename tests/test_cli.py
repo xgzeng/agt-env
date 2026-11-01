@@ -5,7 +5,7 @@ import re
 import pytest
 from conftest import SCOPE_WORDS, write_skill
 
-from agt_view.cli import main
+from agt_env.cli import main
 
 
 def run(capsys, *args):

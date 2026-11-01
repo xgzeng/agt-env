@@ -1,14 +1,14 @@
-# agt-view: Product Requirements
+# agt-env: Product Requirements
 
 | | |
 |---|---|
 | **Status** | Draft v0.1 |
 | **Date** | 2026-10-30 |
-| **Name** | `agt-view` (command and package) |
+| **Name** | `agt-env` (command and package) |
 
 ## 1. Summary
 
-`agt-view` is a read-only CLI that answers one question: **what can each coding agent on my machine use from this directory?** It finds the skills, MCP servers, and plugins configured for each agent, puts them in one model, and shows them in the terminal.
+`agt-env` is a read-only CLI that answers one question: **what can each coding agent on my machine use from this directory?** It finds the skills, MCP servers, and plugins configured for each agent, puts them in one model, and shows them in the terminal.
 
 ## 2. Problem
 
@@ -50,10 +50,10 @@ Anyone running several coding agents has capabilities scattered across incompati
 
 ### Core scenarios
 
-1. "What do I have across all my agents?" → `agt-view`
-2. "Which MCP servers can Codex use here?" → `agt-view -a codex -k mcp`
-3. "Where does this skill come from, and who else has it?" → `agt-view -n my-skill --detail`
-4. "What does this repo add to my agents?" → `agt-view --scope project`
+1. "What do I have across all my agents?" → `agt-env`
+2. "Which MCP servers can Codex use here?" → `agt-env -a codex -k mcp`
+3. "Where does this skill come from, and who else has it?" → `agt-env -n my-skill --detail`
+4. "What does this repo add to my agents?" → `agt-env --scope project`
 
 ## 5. Functional requirements
 
@@ -63,8 +63,8 @@ Priorities: **P0** is required for v1, **P1** follows soon after, and **P2** is 
 
 | Command | Purpose | Priority |
 |---|---|---|
-| `agt-view [keyword...]` | Agents and their items, filterable | P0 |
-| `agt-view probe` | Opt-in live checks through agent CLIs (see 5.5) | P2 |
+| `agt-env [keyword...]` | Agents and their items, filterable | P0 |
+| `agt-env probe` | Opt-in live checks through agent CLIs (see 5.5) | P2 |
 
 Agents appear in rank order (see section 6), each with a header showing its state and config location, followed by its items sorted by scope (project, user, system), then kind, then name.
 
@@ -74,13 +74,13 @@ Agents appear in rank order (see section 6), each with a header showing its stat
 
 - `-a` shows only the named agents, even ones hidden by default. It takes an agent's ID, or `claude` for `claude-code` and `agy` for `antigravity`.
 - `-n` matches a case-insensitive part of the item name. Repeating it widens the results.
-- Keywords match a case-insensitive part of everything shown for an item, including its details and path. Words in one argument narrow and separate arguments widen, so `agt-view "browser test" lint` finds (browser and test) or lint.
+- Keywords match a case-insensitive part of everything shown for an item, including its details and path. Words in one argument narrow and separate arguments widen, so `agt-env "browser test" lint` finds (browser and test) or lint.
 - With `-n` or keywords, agents with no matches are left out. If none are left, the output says so.
 
 **Illustrative output:**
 
 ```text
-$ agt-view
+$ agt-env
 agent-a  ~/.agent-a
   SCOPE/KIND  NAME        STATUS
   P/skill     repo-skill  enabled
@@ -99,7 +99,7 @@ Hidden: agent-c, agent-d. Use --all for details.
 `P`, `U`, and `S` stand for the project, user, and system scopes. `--detail` adds lines under each item, starting at the `NAME` column, for everything the columns don't show, and a line of dashes after the table head and between items:
 
 ```text
-$ agt-view -a agent-b -n my-skill --detail
+$ agt-env -a agent-b -n my-skill --detail
 agent-b  /opt/agent-b (set by AGENT_B_HOME)
 SCOPE/KIND  NAME
 --------------------
@@ -116,7 +116,7 @@ What a plugin brings is listed directly below its row, when that row is shown. I
 Problems are shown with the items they affect, in the same output, with no separate command. Each finding is a row directly below its item, starting where the `DESCRIPTION` column starts, or at `NAME` if a narrow terminal leaves too little room. An agent without any looks as above. With `--detail`, each finding is a `Finding:` line among the item's details.
 
 ```text
-$ agt-view -a agent-a
+$ agt-env -a agent-a
 agent-a  ~/.agent-a
   SCOPE/KIND  NAME      STATUS
   P/skill     my-skill  shadowed
@@ -241,7 +241,7 @@ The ranking can change without affecting the architecture.
 | Area | Requirement |
 |---|---|
 | **Performance** | The default listing finishes in under 200 ms, in plain and terminal output, on a reference fixture of 5 agents and 500 items, on a typical developer laptop; no subprocesses are spawned. The target excludes the time `uvx` needs to set up its environment |
-| **Distribution** | Published to PyPI and runnable with `uvx agt-view`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical; Rich is used for terminal output, and plain output doesn't load it |
+| **Distribution** | Published to PyPI and runnable with `uvx agt-env`, with no prior install; `uv tool install` also works. Requires Python 3.11 or later, with as few third-party dependencies as practical; Rich is used for terminal output, and plain output doesn't load it |
 | **Portability** | Linux and macOS, on any home directory layout, shell, or version manager |
 | **Extensibility** | A new adapter touches only its own module, fixtures, and one registry line |
 
@@ -256,9 +256,9 @@ These are acceptance checks, run against fixtures in CI, except where noted:
 3. **Secret safety:** a test config with planted secrets produces no secret text in any command's output, planted credential stores are never opened, and no file changes.
 4. **Inertness:** a test project config naming a marker-writing command leaves no marker after any P0 command.
 5. **Resilience:** corrupting any single agent's config still produces full results for the others, with exit code 0 and a warning.
-6. **Clean start:** with an empty `HOME` and no agents on `PATH`, `agt-view` exits 0 with a clear message.
+6. **Clean start:** with an empty `HOME` and no agents on `PATH`, `agt-env` exits 0 with a clear message.
 7. **Speed:** the 200 ms target holds on the reference fixture on a developer machine. CI only reports the timings, because shared runners vary too much for a time limit.
-8. **Zero-install run:** in a clean environment, `uvx` runs the built package and `agt-view` produces correct output.
+8. **Zero-install run:** in a clean environment, `uvx` runs the built package and `agt-env` produces correct output.
 
 ## 9. Risks
 

@@ -16,8 +16,8 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from agt_view.model import AgentReport, Item, Kind, Scope, Status
-from agt_view.render_plain import (
+from agt_env.model import AgentReport, Item, Kind, Scope, Status
+from agt_env.render_plain import (
     clean,
     detail_fields,
     finding_text,

@@ -3,8 +3,8 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from agt_view.model import AgentReport, Item
-from agt_view.render_plain import clean, display_path, finding_text, item_path, scope_letter
+from agt_env.model import AgentReport, Item
+from agt_env.render_plain import clean, display_path, finding_text, item_path, scope_letter
 
 
 def select_reports(

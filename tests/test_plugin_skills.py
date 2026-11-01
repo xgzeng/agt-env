@@ -7,7 +7,7 @@ import re
 import pytest
 from conftest import write_skill
 
-from agt_view.cli import main
+from agt_env.cli import main
 
 SECRET = "hunter2-do-not-print"
 
@@ -583,7 +583,7 @@ def test_plain_output_does_not_indent_plugin_items(claude, capsys):
 
 @pytest.mark.parametrize("flags", [(), ("--detail",)])
 def test_rich_does_not_indent_plugin_items(claude, capsys, monkeypatch, flags):
-    from agt_view import cli
+    from agt_env import cli
 
     monkeypatch.setattr(cli, "_use_rich", lambda no_color_flag: True)
     monkeypatch.setenv("COLUMNS", "100")

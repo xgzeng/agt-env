@@ -93,13 +93,13 @@ Permissions control skills:
 | Commands are the same under `commands/` or `command/` | Doc + Tested |
 | The ID is the path without its extension. A `name` field doesn't change it | Doc + Tested |
 | Config entries are under `agents` and `commands` (V2) or `agent` and `command` (V1) | Doc + Tested |
-| A later definition replaces an earlier one with the same ID. `agt-view` shows the winner, with a finding naming what it overrides | Doc + Tested |
+| A later definition replaces an earlier one with the same ID. `agt-env` shows the winner, with a finding naming what it overrides | Doc + Tested |
 | Within a directory, Markdown files apply after that directory's config files, so `.opencode/agents` beats a root `opencode.json`, which beats global Markdown | Tested |
 | `disabled: true` (V2) or `disable: true` (V1) removes an agent, including a built-in | Doc + Tested |
 | A config command with no `template` is dropped | Doc + Tested |
 | A command can have the same name as a built-in, and replaces it | Doc + Tested |
 
-OpenCode has no hook config. Hooks only come from plugin code, which `agt-view` doesn't run.
+OpenCode has no hook config. Hooks only come from plugin code, which `agt-env` doesn't run.
 
 ## Findings not in the documentation
 
@@ -120,13 +120,13 @@ OpenCode has no hook config. Hooks only come from plugin code, which `agt-view` 
 - **What takes an ID:** a standalone `.md` file, and a skill with no description or frontmatter, beat a lower source. A dangling link doesn't.
 - **Removing built-ins:** `-*` also removes built-in plugins. `-opencode.config.skill` makes all skills on disk disappear, `-opencode.config.mcp` does the same for servers, and `-opencode.skill` only removes built-in skills. `-opencode.config.compatibility` drops the `.claude/skills` and `.agents/skills` sources at user and project level, and keeps OpenCode's own.
 - **Plugin load failures:** `/api/plugin` shows a failed plugin as `state.status: "failed"`, and a missing configured directory fails the same way. A configured single file is skipped without appearing at all.
-- **Invalid V2 entries are dropped:** a server with an unknown `type` doesn't appear in `/api/mcp`. `agt-view` shows it as `broken`.
+- **Invalid V2 entries are dropped:** a server with an unknown `type` doesn't appear in `/api/mcp`. `agt-env` shows it as `broken`.
 - **Server API:** `/api/skill`, `/api/mcp`, `/api/plugin`, and `/api/config` need Basic auth, with user `opencode` and the password from `service.json`. The `x-opencode-directory` header selects the project. A `?directory=` query is ignored, and answers for the service's own directory.
 - **`opencode mcp list` reported "No MCP servers configured"** while `/api/mcp` listed the same servers, so it can't be used as a check.
 - **Background service:** most CLI commands start a service on a fixed port (49374 by default). A service for another `HOME` on that port makes them fail until you run `opencode service set port <port>`. It also needs a moment to load config after starting.
 - **Environment variables seen only in the binary:** `OPENCODE_DISABLE_CLAUDE_CODE`, `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`, and `OPENCODE_DISABLE_PROJECT_CONFIG` appear in the binary, but not in the pages we read.
 
-## How `agt-view` handles what it can't observe
+## How `agt-env` handles what it can't observe
 
 - **Replaced servers:** only the winning entry is listed, with a finding that names the file it overrides.
 - **Plugin IDs:** these are found by reading `id: "..."` from the plugin's source, without running it. If a removal is configured and a plugin's ID can't be read, that plugin is `unknown`.
@@ -138,15 +138,15 @@ OpenCode has no hook config. Hooks only come from plugin code, which `agt-view` 
 
 - `XDG_CONFIG_HOME` moves the global config directory. The V2 docs state this only for `cli.json`.
 - `opencode.json` and `opencode.jsonc` in one directory are both read, with `.jsonc` applied later. Testing confirmed both are read, but not which wins.
-- The `OPENCODE_DISABLE_*` variables above do what their names say. `agt-view` honors them, but their effect wasn't tested.
+- The `OPENCODE_DISABLE_*` variables above do what their names say. `agt-env` honors them, but their effect wasn't tested.
 - `plugin` (V1) entries apply before `plugins` (V2) within one config file.
 - Among `skills` config entries, a later one beats an earlier one, and `OPENCODE_CONFIG_DIR` beats the global directory. Neither was tested.
 
-## Not covered by `agt-view`
+## Not covered by `agt-env`
 
 - Built-in skills, plugins, agents, and commands.
 - Hooks, agents, and commands that plugins register in code.
-- Parent project directories, because `agt-view` treats the current directory as the project root.
+- Parent project directories, because `agt-env` treats the current directory as the project root.
 - Remote config and `OPENCODE_CONFIG_CONTENT`.
 - Skills from a URL in the `skills` config.
 - `policies`, which can hard-deny after permission rules.

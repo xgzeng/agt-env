@@ -8,7 +8,7 @@ compares results with the real agent.
 import os
 from pathlib import Path
 
-from agt_view.adapters.base import (
+from agt_env.adapters.base import (
     Context,
     definition_item,
     first_existing,
@@ -22,10 +22,10 @@ from agt_view.adapters.base import (
     read_json,
     skill_item,
 )
-from agt_view.hooks import handler_content, handler_details, handlers
-from agt_view.mcp import remote_details, stdio_details
-from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
-from agt_view.skills import FoundSkill, read_markdown, scan_skills
+from agt_env.hooks import handler_content, handler_details, handlers
+from agt_env.mcp import remote_details, stdio_details
+from agt_env.model import AgentReport, Finding, Item, Kind, Scope, Status
+from agt_env.skills import FoundSkill, read_markdown, scan_skills
 
 _UNNAMED_SKILL = "SKILL"
 _NEEDS_NAME_AND_DESCRIPTION = "needs a name and a description, which Antigravity CLI requires"

@@ -85,7 +85,7 @@ The docs are in the [Pi repository](https://github.com/earendil-works/pi), and a
 
 ## Prompt templates
 
-Pi's custom commands are prompt templates. Pi has no hook config or custom agents: extensions add such things in code, which `agt-view` doesn't run.
+Pi's custom commands are prompt templates. Pi has no hook config or custom agents: extensions add such things in code, which `agt-env` doesn't run.
 
 | Rule | Evidence |
 |---|---|
@@ -104,7 +104,7 @@ Pi's custom commands are prompt templates. Pi has no hook config or custom agent
 - **Where standalone skills work:** `*.md` directly under `<agent-dir>/skills` loads. The docs don't say where these are accepted.
 - **`pi mcp list` and trust:** it reported a project as untrusted even with `defaultProjectTrust: "always"`, while RPC mode loaded that project's skills and extensions. So `pi mcp list` can't confirm project servers through that setting.
 - **A missing package blocks startup:** with an uninstallable npm package in settings, `pi list` and RPC mode failed with the npm error. The docs say Pi warns, skips the package, and keeps running.
-- **`git@host:path` sources:** a source in this form found no installed copy, so `agt-view` shows no skills for it.
+- **`git@host:path` sources:** a source in this form found no installed copy, so `agt-env` shows no skills for it.
 - **Listing through RPC:** `{"type": "get_commands"}` in `--mode rpc` lists skills as `skill:<name>`, and commands that extensions register. An extension that registers no command doesn't appear in it.
 
 ## Assumptions
@@ -112,9 +112,9 @@ Pi's custom commands are prompt templates. Pi has no hook config or custom agent
 - A package's skills are listed only if its files are on disk. A package that Pi would install at startup shows its own row with no skills.
 - Standalone Markdown skills in `.pi/skills` work as they do in `<agent-dir>/skills`, and those in `.agents/skills` don't load. Neither was tested.
 
-## Not covered by `agt-view`
+## Not covered by `agt-env`
 
 - Extensions contributed by Pi packages, and `autoload: false` entries, which act as a filter over the personal entry.
 - Skills and servers that extensions add at runtime.
 - Built-in extensions such as `builtin:mcp`, other than noticing when MCP is turned off.
-- Parent project directories, because `agt-view` treats the current directory as the project root.
+- Parent project directories, because `agt-env` treats the current directory as the project root.

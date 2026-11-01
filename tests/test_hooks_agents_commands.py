@@ -6,8 +6,8 @@ import re
 import pytest
 from conftest import write_skill
 
-from agt_view import cli
-from agt_view.cli import main
+from agt_env import cli
+from agt_env.cli import main
 
 SECRET = "hunter2-do-not-print"
 COLOR_CODE = re.compile(r"\x1b\[[0-9;]*m")
@@ -360,8 +360,8 @@ def test_codex_hook_waits_for_review(codex, capsys):
 
 
 def test_codex_hook_state(codex, capsys):
-    from agt_view.adapters.codex import _hook_hash
-    from agt_view.hooks import handlers
+    from agt_env.adapters.codex import _hook_hash
+    from agt_env.hooks import handlers
 
     write_json(codex.hooks, stop(hook()))
     fingerprint = _hook_hash(next(handlers(stop(hook())["hooks"])))

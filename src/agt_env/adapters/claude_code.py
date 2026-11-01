@@ -12,7 +12,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-from agt_view.adapters.base import (
+from agt_env.adapters.base import (
     INVALID_SERVER,
     MISSING_PLUGIN,
     Context,
@@ -31,10 +31,10 @@ from agt_view.adapters.base import (
     skill_item,
     unique_roots,
 )
-from agt_view.hooks import handlers, hook_item
-from agt_view.mcp import remote_details, stdio_details
-from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
-from agt_view.skills import (
+from agt_env.hooks import handlers, hook_item
+from agt_env.mcp import remote_details, stdio_details
+from agt_env.model import AgentReport, Finding, Item, Kind, Scope, Status
+from agt_env.skills import (
     SKILL_FILE,
     FoundSkill,
     find_markdown,

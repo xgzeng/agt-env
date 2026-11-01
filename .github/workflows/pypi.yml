@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/agt-view/
+      url: https://pypi.org/project/agt-env/
     permissions:
       id-token: write # PyPI trusted publishing, so no API token is stored
     steps:

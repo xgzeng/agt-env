@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 SCOPE_WORDS = {"P": "project", "U": "user", "S": "system"}
-ENTRY_POINT = "from agt_view.cli import main; raise SystemExit(main())"
+ENTRY_POINT = "from agt_env.cli import main; raise SystemExit(main())"
 
 
 def write_skill(directory: Path, frontmatter: str = "description: does a thing") -> Path:
@@ -69,7 +69,7 @@ def run_piped(machine, *args, code=ENTRY_POINT, env=None):
 
 
 def assert_broken_items_say_why(report):
-    from agt_view.model import Status
+    from agt_env.model import Status
 
     for item in report.items:
         if item.status is Status.BROKEN:
@@ -79,7 +79,7 @@ def assert_broken_items_say_why(report):
 @pytest.fixture(autouse=True)
 def broken_items_say_why(monkeypatch):
     """Every scan in every test checks that a broken item has a reason."""
-    from agt_view.adapters import ADAPTERS
+    from agt_env.adapters import ADAPTERS
 
     for adapter in ADAPTERS:
         original = type(adapter).scan
@@ -138,7 +138,7 @@ def machine(tmp_path, monkeypatch):
     monkeypatch.chdir(Machine.project)
 
     # Keep machine-wide locations inside the fixture too.
-    from agt_view.adapters import base
+    from agt_env.adapters import base
 
     original = base.Context.__init__
 

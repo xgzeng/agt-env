@@ -1,6 +1,6 @@
 """Compare results with `agy mcp list` and `agy plugin list` on the same fixture.
 
-Runs only when AGT_VIEW_AGY points at a real agy binary, and never touches the developer's
+Runs only when AGT_ENV_AGY points at a real agy binary, and never touches the developer's
 configuration: HOME is temporary.
 """
 
@@ -10,13 +10,13 @@ import subprocess
 
 import pytest
 
-from agt_view.adapters.antigravity import Antigravity
-from agt_view.adapters.base import Context
-from agt_view.model import Kind, Scope, Status
+from agt_env.adapters.antigravity import Antigravity
+from agt_env.adapters.base import Context
+from agt_env.model import Kind, Scope, Status
 
-AGY = os.environ.get("AGT_VIEW_AGY")
+AGY = os.environ.get("AGT_ENV_AGY")
 
-pytestmark = pytest.mark.skipif(not AGY, reason="AGT_VIEW_AGY is not set")
+pytestmark = pytest.mark.skipif(not AGY, reason="AGT_ENV_AGY is not set")
 
 
 def write(path, content):

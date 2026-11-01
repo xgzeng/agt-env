@@ -64,7 +64,7 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 | Rule | Evidence |
 |---|---|
 | Agents are `<name>.md` or `<name>/agent.md`, one level down, in `~/.gemini/config/agents` and `.agents/agents` | Doc + Tested |
-| `name` and `description` are required, and without them the file isn't loaded. `agt-view` reports it as `broken` | Doc + Tested |
+| `name` and `description` are required, and without them the file isn't loaded. `agt-env` reports it as `broken` | Doc + Tested |
 | A plugin's are in its `agents/`, by bare name, and only load with an enabled plugin | Doc + Tested |
 
 ## Hooks
@@ -88,7 +88,7 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 ## Findings not in the documentation
 
 - **More agent locations:** `~/.gemini/antigravity-cli/agents`, `~/.gemini/agents`, and `.agent/agents` also load, and hidden names load too.
-- **Workspace agents:** `agy agents` lists them only once the workspace is trusted. `agt-view` shows them as `pending` until then.
+- **Workspace agents:** `agy agents` lists them only once the workspace is trusted. `agt-env` shows them as `pending` until then.
 - **Same-named agents:** the listing shows one name once. Which one wins isn't known, so nothing is flagged.
 - **Plugin components:** `agy plugin list --json` reports `agents` and `hooks`. It doesn't report a plugin's `commands` or `workflows` folder.
 - **`~/.gemini/skills`:** `/skills` names this as the "Shared" location. No skills were placed there, so we haven't confirmed that it loads them.
@@ -101,19 +101,19 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 - **Plugin skill listing:** `agy plugin list --json` has each plugin's `skills`, by bare name. It still lists them for a disabled plugin, so it says what a plugin contains rather than what loads.
 - **Trust prompt:** an untrusted folder gets a prompt before anything loads, and declining exits. `trustedWorkspaces` as a list of paths skips the prompt.
 - **Blank config:** an empty `mcp_config.json` means no servers, while malformed JSON is an error.
-- **Servers with no command or URL:** these are listed as enabled stdio servers but can't start. `agt-view` shows them as `broken`.
+- **Servers with no command or URL:** these are listed as enabled stdio servers but can't start. `agt-env` shows them as `broken`.
 - **Sign-in message:** the startup screen briefly says "You are currently not signed in" while it checks, even when you are signed in.
 
 ## Assumptions
 
-- Precedence between same-named skills or servers isn't known, because the listings that show them need a signed-in session. `agt-view` never reports these as `shadowed`.
+- Precedence between same-named skills or servers isn't known, because the listings that show them need a signed-in session. `agt-env` never reports these as `shadowed`.
 - `~/.gemini/skills` loads skills like the other user directories, based only on `/skills` naming it.
 - User-level and workspace hooks can't be compared, because no listing shows them and running them needs a session. Their rows follow the docs.
 - `config.json` can disable a workspace plugin as it does a global one.
 - A disabled plugin's skills don't load. The docs imply it, and the listing that would show it needs a signed-in session.
 - Workspace plugin skills follow the same layout as global ones, and wait for the workspace trust.
 
-## Not covered by `agt-view`
+## Not covered by `agt-env`
 
 - Built-in skills, and MCP servers bundled in plugins.
 - Rules, and custom commands: the docs only describe built-in ones.

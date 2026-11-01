@@ -1,6 +1,6 @@
 """Compare discovery with Codex's own listing on the same fixture.
 
-Runs only when AGT_VIEW_CODEX points at a real Codex binary, and never touches
+Runs only when AGT_ENV_CODEX points at a real Codex binary, and never touches
 the developer's configuration: HOME and CODEX_HOME are temporary.
 """
 
@@ -11,11 +11,11 @@ import subprocess
 import pytest
 from conftest import write_skill
 
-from agt_view.adapters.base import Context
-from agt_view.adapters.codex import Codex
-from agt_view.model import Kind, Scope, Status
+from agt_env.adapters.base import Context
+from agt_env.adapters.codex import Codex
+from agt_env.model import Kind, Scope, Status
 
-CODEX = os.environ.get("AGT_VIEW_CODEX")
+CODEX = os.environ.get("AGT_ENV_CODEX")
 
 
 def codex_skills(home, cwd):
@@ -59,7 +59,7 @@ def codex_skills(home, cwd):
         process.wait()
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 def test_matches_codex_listing(tmp_path, monkeypatch):
     home, project = tmp_path / "home", tmp_path / "project"
     agents = home / ".agents" / "skills"
@@ -128,7 +128,7 @@ def codex_mcp_servers(home, cwd):
     return {server["name"]: server for server in json.loads(output)}
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 @pytest.mark.parametrize("trusted", [False, True])
 def test_mcp_matches_codex_listing(tmp_path, trusted):
     home, project = tmp_path / "home", tmp_path / "project"
@@ -163,7 +163,7 @@ enabled = false
         assert loaded[name].details["transport"] == server["transport"]["type"]
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 def test_mcp_precedence_matches_codex_listing(tmp_path):
     home, project = tmp_path / "home", tmp_path / "project"
     (home / ".codex").mkdir(parents=True)
@@ -286,7 +286,7 @@ def no_description(home):
     write_skill(codex_plugin(home) / "skills" / "a", "name: a")
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 @pytest.mark.parametrize(
     ("config", "build"),
     [
@@ -337,7 +337,7 @@ def test_plugin_skills_match_codex_listing(tmp_path, config, build):
     }
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 @pytest.mark.parametrize(
     ("user", "project_entry", "loads"),
     [
@@ -369,7 +369,7 @@ def test_trusted_project_decides_plugin_state(tmp_path, user, project_entry, loa
     assert ours == theirs
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 def test_a_disabled_plugin_skill_matches_codex(tmp_path):
     home, project = tmp_path / "home", tmp_path / "project"
     (home / ".codex").mkdir(parents=True)
@@ -468,11 +468,11 @@ HOOK_VARIANTS = [
 ]
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 @pytest.mark.parametrize("events", HOOK_VARIANTS)
 def test_hook_fingerprints_match_codex(tmp_path, events):
-    from agt_view.adapters.codex import _hook_hash
-    from agt_view.hooks import handlers
+    from agt_env.adapters.codex import _hook_hash
+    from agt_env.hooks import handlers
 
     home, project = codex_dirs(tmp_path)
     write_hooks(home / ".codex" / "hooks.json", events)
@@ -480,7 +480,7 @@ def test_hook_fingerprints_match_codex(tmp_path, events):
     assert theirs and [_hook_hash(handler) for handler in handlers(events)] == theirs
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 def test_hook_status_matches_codex(tmp_path):
     home, project = codex_dirs(tmp_path)
     write_hooks(
@@ -516,7 +516,7 @@ def test_hook_status_matches_codex(tmp_path):
     assert sorted((i.name, i.status.value) for i in our_hooks(tmp_path, home, project)) == expected
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 def test_config_hooks_and_project_hooks_match_codex(tmp_path):
     home, project = codex_dirs(tmp_path)
     write_hooks(home / ".codex" / "hooks.json", {"Stop": [{"hooks": [COMMAND]}]})
@@ -539,7 +539,7 @@ def test_config_hooks_and_project_hooks_match_codex(tmp_path):
     assert ours[Scope.PROJECT] is Status.PENDING
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 @pytest.mark.parametrize(
     ("hooks_key", "config"),
     [(None, PLUGIN_ON), ("./other.json", PLUGIN_ON), (None, '[plugins."p@m"]\nenabled = false\n')],
@@ -555,7 +555,7 @@ def test_plugin_hooks_match_codex(tmp_path, hooks_key, config):
     assert sorted(i.name for i in our_hooks(tmp_path, home, project)) == theirs
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 def test_plugin_hook_fingerprint_covers_more_than_the_hook(tmp_path):
     """This is why a reviewed plugin hook is `unknown`, not `enabled`."""
     home, project = codex_dirs(tmp_path)
@@ -575,7 +575,7 @@ def test_plugin_hook_fingerprint_covers_more_than_the_hook(tmp_path):
     assert [i.status for i in our_hooks(tmp_path, home, project)] == [Status.UNKNOWN]
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 def test_a_bad_hooks_file_gives_nothing_like_codex(tmp_path):
     home, project = codex_dirs(tmp_path)
     write_hooks(
@@ -586,7 +586,7 @@ def test_a_bad_hooks_file_gives_nothing_like_codex(tmp_path):
     assert our_hooks(tmp_path, home, project) == []
 
 
-@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.skipif(not CODEX, reason="AGT_ENV_CODEX is not set")
 def test_turning_hooks_off_matches_codex(tmp_path):
     home, project = codex_dirs(tmp_path)
     write_hooks(home / ".codex" / "hooks.json", {"Stop": [{"hooks": [COMMAND]}]})

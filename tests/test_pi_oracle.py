@@ -1,6 +1,6 @@
 """Compare results with Pi's own RPC mode and `pi mcp list` on the same fixture.
 
-Runs only when AGT_VIEW_PI points at a real Pi binary, and never touches the developer's
+Runs only when AGT_ENV_PI points at a real Pi binary, and never touches the developer's
 configuration: HOME is temporary. Fixture extensions only register a command, and fixture
 servers only run /bin/true.
 """
@@ -15,13 +15,13 @@ import time
 import pytest
 from conftest import write_skill
 
-from agt_view.adapters.base import Context
-from agt_view.adapters.pi import Pi
-from agt_view.model import Kind, Scope, Status
+from agt_env.adapters.base import Context
+from agt_env.adapters.pi import Pi
+from agt_env.model import Kind, Scope, Status
 
-PI = os.environ.get("AGT_VIEW_PI")
+PI = os.environ.get("AGT_ENV_PI")
 
-pytestmark = pytest.mark.skipif(not PI, reason="AGT_VIEW_PI is not set")
+pytestmark = pytest.mark.skipif(not PI, reason="AGT_ENV_PI is not set")
 
 
 def extension(name):

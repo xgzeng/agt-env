@@ -1,6 +1,6 @@
 import pytest
 
-from agt_view.frontmatter import parse_frontmatter
+from agt_env.frontmatter import parse_frontmatter
 
 
 @pytest.mark.parametrize(

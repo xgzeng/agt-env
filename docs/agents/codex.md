@@ -89,21 +89,21 @@ These pages are long, and parts of the config, MCP, and plugin pages were read t
 - **Lenient YAML:** `name: [unclosed` loaded with that literal text as the name.
 - **Disabling a skill:** the docs conflict on whether `path` names the file or the folder. Only the `SKILL.md` path works, and a folder path is ignored.
 - **Same skill through two roots:** it loads once, as a user skill, when linked from both user and project roots.
-- **Broken links:** dangling symlinks are silently ignored, with no error reported. `agt-view` reports them as `broken`.
+- **Broken links:** dangling symlinks are silently ignored, with no error reported. `agt-env` reports them as `broken`.
 - **Invalid servers:** an entry with neither `command` nor `url` makes Codex reject the entire config file.
 - **Missing `CODEX_HOME`:** `codex app-server` exited when the directory didn't exist.
 - **Listing commands:** `codex mcp list --json` works, and `codex app-server` offers `skills/list`, `plugin/list`, and `hooks/list`. The docs don't mention them.
 - **Hook state:** `[hooks.state."<key>"]` in `config.toml` holds `trusted_hash` and `enabled`. The key is `<file>:<event_in_snake_case>:<group>:<handler>`, or `<plugin id>:<file in plugin>:...` for a plugin's.
-- **Hook fingerprint:** `trusted_hash` is `sha256:` over compact sorted JSON of `{"event_name", "matcher", "hooks": [handler]}`. A command handler has `type`, `command`, `timeout` (600 by default), `async`, and any `statusMessage`. An MCP one has `type`, `server`, `tool`, `input`, and `timeout`. `agt-view` recomputes it, so an edited hook shows as `pending`.
+- **Hook fingerprint:** `trusted_hash` is `sha256:` over compact sorted JSON of `{"event_name", "matcher", "hooks": [handler]}`. A command handler has `type`, `command`, `timeout` (600 by default), `async`, and any `statusMessage`. An MCP one has `type`, `server`, `tool`, `input`, and `timeout`. `agt-env` recomputes it, so an edited hook shows as `pending`.
 - **Plugin hook fingerprint:** it has a second part that changes with any file in the plugin, and a stored copy of the current value still reported `modified`. So a plugin hook with a stored fingerprint is `unknown`.
-- **Invalid hook files:** a command handler with no `command` makes Codex reject that whole file with a warning. `agt-view` warns too, and lists nothing from it.
-- **Handler types:** `prompt` and `agent` handlers are skipped with a warning that they aren't supported yet. `agt-view` reports them as `broken`.
+- **Invalid hook files:** a command handler with no `command` makes Codex reject that whole file with a warning. `agt-env` warns too, and lists nothing from it.
+- **Handler types:** `prompt` and `agent` handlers are skipped with a warning that they aren't supported yet. `agt-env` reports them as `broken`.
 - **Plugin files:** `plugins/cache/<marketplace>/<name>/<version>` holds plugins, with a manifest at `.codex-plugin/plugin.json`.
 - **Version order:** versions compare as semver when both are in `x.y.z` form, and otherwise as text. So `10.0.0` beats `9.0.0`, while `1.9` beats `1.10` and `local` beats `1.0.0`.
-- **Plugin skill scope:** `skills/list` calls a plugin skill `user`, even when a project's entry enabled it. `agt-view` uses the scope of the entry that enables the plugin.
+- **Plugin skill scope:** `skills/list` calls a plugin skill `user`, even when a project's entry enabled it. `agt-env` uses the scope of the entry that enables the plugin.
 - **Cached plugins:** the cache can hold plugins with no config entry, so being cached doesn't show that a plugin is enabled.
 
-## How `agt-view` reports this
+## How `agt-env` reports this
 
 - The user's entry is `shadowed` by a trusted project's entry, even when the project's turns the server off. The project's row shows the merged result.
 - Duplicate skills all load, so they're never `shadowed`.
@@ -116,10 +116,10 @@ These pages are long, and parts of the config, MCP, and plugin pages were read t
 - No listing shows custom agents, so their rows follow the docs. Project agents are assumed to wait for trust like other project config, and only files directly in `agents` are read.
 - `/etc/codex/skills` wasn't tested, to avoid writing outside the temporary `HOME`.
 
-## Not covered by `agt-view`
+## Not covered by `agt-env`
 
 - MCP servers bundled in plugins, and agents in plugins.
 - Custom prompts. The docs say they appear as `/prompts:<name>` without saying where they live, and no listing shows them.
 - Managed hooks from `requirements.toml`.
-- Parent project directories, because `agt-view` treats the current directory as the project root.
+- Parent project directories, because `agt-env` treats the current directory as the project root.
 - Plugins available only through an account.

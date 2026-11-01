@@ -1,5 +1,5 @@
 import sys
 
-from agt_view.cli import main
+from agt_env.cli import main
 
 sys.exit(main())

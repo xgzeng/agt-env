@@ -8,10 +8,10 @@ from conftest import run_on_terminal, run_piped, write_skill
 from rich.cells import cell_len
 from rich.console import Console
 
-from agt_view import cli
-from agt_view.cli import main
-from agt_view.model import Item, Kind, Scope, Status
-from agt_view.render_pretty import _cells, _description
+from agt_env import cli
+from agt_env.cli import main
+from agt_env.model import Item, Kind, Scope, Status
+from agt_env.render_pretty import _cells, _description
 
 SECRET = "hunter2-do-not-print"
 COLOR_CODE = re.compile(r"\x1b\[[0-9;]*m")
@@ -383,7 +383,7 @@ def test_plain_output_does_not_load_rich(real_machine):
         real_machine,
         code=(
             "import sys\n"
-            "from agt_view.cli import main\n"
+            "from agt_env.cli import main\n"
             "main(['--no-color'])\n"
             "assert not any(name.split('.')[0] == 'rich' for name in sys.modules)\n"
         ),
@@ -547,7 +547,7 @@ def test_the_kind_in_a_description_has_no_style_of_its_own(tmp_path):
 
 
 def test_kind_colors_differ_from_scope_and_status_colors():
-    from agt_view.render_pretty import _KIND_COLORS, _SCOPE_STYLES, _STATUS_MARKS
+    from agt_env.render_pretty import _KIND_COLORS, _SCOPE_STYLES, _STATUS_MARKS
 
     colors = set(_KIND_COLORS.values())
     assert not colors & set(_SCOPE_STYLES.values())

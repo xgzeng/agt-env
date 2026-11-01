@@ -9,8 +9,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from agt_view.mcp import command_name, masked, safe_url
-from agt_view.model import Finding, Item, Kind, Scope, Status
+from agt_env.mcp import command_name, masked, safe_url
+from agt_env.model import Finding, Item, Kind, Scope, Status
 
 INVALID_HOOK = Finding("invalid hook entry")
 

@@ -2,12 +2,12 @@
 
 This file provides guidance to coding agents when working with code in this repository. `CLAUDE.md` is a symlink to it.
 
-`agt-view` is a read-only CLI that lists the skills, MCP servers, plugins, hooks, subagents, and commands each coding agent can use from the current directory. Requirements are in `docs/PRD.md`.
+`agt-env` is a read-only CLI that lists the skills, MCP servers, plugins, hooks, subagents, and commands each coding agent can use from the current directory. Requirements are in `docs/PRD.md`.
 
 ## Commands
 
 ```sh
-uv run agt-view                  # run from source
+uv run agt-env                  # run from source
 uv run pytest                    # all tests; real-agent comparisons are skipped
 uv run pytest tests/test_cli.py::test_filters    # one test
 uv run --isolated --python 3.11 --group dev pytest    # oldest supported Python
@@ -20,7 +20,7 @@ uv build && uv run --no-project scripts/check_wheel.py dist/*.whl    # the built
 Real-agent comparison tests run only when given a binary, and always use a temporary `HOME`. Pass the real binary, because a version-manager shim may not work in a temporary `HOME` (with mise, use `mise which codex`):
 
 ```sh
-AGT_VIEW_CLAUDE=... AGT_VIEW_CODEX=... AGT_VIEW_OPENCODE=... AGT_VIEW_PI=... AGT_VIEW_AGY=... uv run pytest
+AGT_ENV_CLAUDE=... AGT_ENV_CODEX=... AGT_ENV_OPENCODE=... AGT_ENV_PI=... AGT_ENV_AGY=... uv run pytest
 ```
 
 ## Architecture
@@ -58,6 +58,6 @@ OpenCode's comparison tests start a background service, so they give it its own 
 
 Before tagging, run the real-agent comparison tests above, because CI doesn't have the agents.
 
-The version is in both `pyproject.toml` and `src/agt_view/__init__.py`, and `uv.lock` must be refreshed with `uv lock`. The workflows only check the tag against `pyproject.toml`.
+The version is in both `pyproject.toml` and `src/agt_env/__init__.py`, and `uv.lock` must be refreshed with `uv lock`. The workflows only check the tag against `pyproject.toml`.
 
 Pushing a tag `v<version>` on a commit in `main` runs `release.yml`, which creates the GitHub release and starts `pypi.yml`. A release created by a workflow can't trigger other workflows, so `release.yml` starts `pypi.yml` explicitly. `pypi.yml` uploads through PyPI trusted publishing, with environment `pypi`.

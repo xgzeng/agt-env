@@ -7,7 +7,7 @@ import re
 import pytest
 from conftest import run_on_terminal, run_piped, write_skill
 
-from agt_view.cli import main
+from agt_env.cli import main
 
 SECRET = "hunter2-do-not-print"
 # The usual locations. See docs/agents/README.md for which of these were confirmed.
@@ -56,7 +56,7 @@ def hook(event, args):
 
 sys.addaudithook(hook)
 
-from agt_view.cli import main
+from agt_env.cli import main
 
 code = main()
 log = {"opened": list(opened), "changed": list(changed)}

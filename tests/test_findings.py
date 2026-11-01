@@ -6,9 +6,9 @@ import re
 import pytest
 from conftest import assert_broken_items_say_why, write_skill
 
-from agt_view import cli
-from agt_view.cli import main
-from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
+from agt_env import cli
+from agt_env.cli import main
+from agt_env.model import AgentReport, Finding, Item, Kind, Scope, Status
 
 SECRET = "hunter2-do-not-print"
 STDIO = {"command": "/bin/true"}

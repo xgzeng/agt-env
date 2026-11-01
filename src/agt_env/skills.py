@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from agt_view.frontmatter import parse_frontmatter
+from agt_env.frontmatter import parse_frontmatter
 
 SKILL_FILE = "SKILL.md"
 _MAX_READ_BYTES = 64 * 1024

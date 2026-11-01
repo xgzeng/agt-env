@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from agt_view.adapters.base import (
+from agt_env.adapters.base import (
     Context,
     config_dir,
     definition_item,
@@ -28,9 +28,9 @@ from agt_view.adapters.base import (
     skill_item,
     unique_roots,
 )
-from agt_view.mcp import remote_details, stdio_details, without_credentials
-from agt_view.model import AgentReport, Item, Kind, Scope, Status
-from agt_view.skills import (
+from agt_env.mcp import remote_details, stdio_details, without_credentials
+from agt_env.model import AgentReport, Item, Kind, Scope, Status
+from agt_env.skills import (
     SKILL_FILE,
     FoundSkill,
     find_markdown,

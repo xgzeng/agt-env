@@ -7,7 +7,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from agt_view.model import AgentReport, Finding, Item, Scope
+from agt_env.model import AgentReport, Finding, Item, Scope
 
 _ESCAPE_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\^_][^\x1b]*(?:\x1b\\)?|.)?"

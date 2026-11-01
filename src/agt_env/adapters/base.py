@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from agt_view.jsonc import loads_jsonc
-from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
-from agt_view.skills import FoundSkill
+from agt_env.jsonc import loads_jsonc
+from agt_env.model import AgentReport, Finding, Item, Kind, Scope, Status
+from agt_env.skills import FoundSkill
 
 
 @dataclass(frozen=True)

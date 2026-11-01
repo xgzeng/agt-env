@@ -4,12 +4,12 @@ import sys
 import pytest
 from conftest import SCOPE_WORDS
 
-from agt_view.adapters.base import Context
-from agt_view.adapters.claude_code import ClaudeCode
-from agt_view.adapters.codex import Codex
-from agt_view.cli import main
-from agt_view.mcp import safe_url
-from agt_view.model import Kind
+from agt_env.adapters.base import Context
+from agt_env.adapters.claude_code import ClaudeCode
+from agt_env.adapters.codex import Codex
+from agt_env.cli import main
+from agt_env.mcp import safe_url
+from agt_env.model import Kind
 
 STDIO = {"command": "/bin/true"}
 

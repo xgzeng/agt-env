@@ -35,7 +35,7 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 | All frontmatter is optional. `name` defaults to the directory name, and `description` to the first non-empty body line | Doc |
 | If the frontmatter's YAML doesn't parse, the skill still loads with no fields set | Doc |
 | Names containing `<`, `>`, zero-width, or control characters are refused, as are `anthropic-skills` and `anthropic-skills:*` outside a plugin | Doc |
-| On a name conflict, enterprise beats personal, and personal beats project. `agt-view` reports the loser as `shadowed` | Doc |
+| On a name conflict, enterprise beats personal, and personal beats project. `agt-env` reports the loser as `shadowed` | Doc |
 | `skillOverrides: "off"` hides a skill. `"name-only"` and `"user-invocable-only"` keep it in the `/` menu. Plugin skills aren't affected | Doc |
 | A `permissions.deny` rule of `Skill`, `Skill(name)`, or `Skill(name *)` blocks skills | Doc |
 
@@ -50,7 +50,7 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 | When `managed-mcp.json` exists, only managed servers load | Doc |
 | An entry with no `type` is stdio. One with a `url` but no `type` is skipped with an error | Doc + Tested |
 | `type` can be `stdio`, `http`, `streamable-http`, `sse`, or `ws`. `sdk` entries are skipped | Doc |
-| Precedence is local, project, user, plugin, then claude.ai connectors. The whole entry from the winning source is used. `agt-view` reports the loser as `shadowed` | Doc + Tested |
+| Precedence is local, project, user, plugin, then claude.ai connectors. The whole entry from the winning source is used. `agt-env` reports the loser as `shadowed` | Doc + Tested |
 | A project server waiting for approval doesn't replace the user's server | Tested |
 | `disabledMcpServers` in the project's `.claude.json` entry turns off user and local servers there | Doc + Tested |
 | Project servers wait for approval until `enabledMcpjsonServers` or `enableAllProjectMcpServers` applies | Doc + Tested |
@@ -80,8 +80,8 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 | Agents are Markdown files under `agents/` in the config directory and `.claude/agents`, searched recursively, including hidden files | Doc + Tested |
 | Managed agents are in the managed directory | Doc, and the path is assumed to match skills |
 | Identity is `name`, and the file name doesn't matter | Doc + Tested |
-| No `name`, no `description`, a `name` with `:`, or one starting with `-` means the file isn't loaded. `agt-view` reports it as `broken` | Doc + Tested |
-| Precedence from highest is managed, project, user, then plugin. `agt-view` reports the loser as `shadowed` | Doc |
+| No `name`, no `description`, a `name` with `:`, or one starting with `-` means the file isn't loaded. `agt-env` reports it as `broken` | Doc + Tested |
+| Precedence from highest is managed, project, user, then plugin. `agt-env` reports the loser as `shadowed` | Doc |
 | Two same-named files in one directory load one, by read order, so neither is flagged | Doc |
 | `Agent` in `permissions.deny` blocks all, and `Agent(name)` blocks one | Doc |
 | Plugin agents are under `agents/`, named `plugin:folder:name`, and fall back to the file name | Doc + Tested |
@@ -93,7 +93,7 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 |---|---|
 | Commands are `*.md` under `commands/` in the config directory and `.claude/commands`, searched recursively, including hidden entries | Doc + Tested |
 | The name comes from the path, with `:` between folders. A `name` field is ignored | Doc + Tested |
-| A skill beats a same-named command. `agt-view` reports the command as `shadowed` | Doc |
+| A skill beats a same-named command. `agt-env` reports the command as `shadowed` | Doc |
 | `skillOverrides: "off"` hides a command | Tested |
 | Plugin commands are under `commands/` and named `plugin:folder:name` | Doc + Tested |
 | The manifest's `commands` replaces the default. It takes a directory, a file, a list of those, or an object whose keys are the names | Doc + Tested |
@@ -104,7 +104,7 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 |---|---|
 | Hooks are under `hooks` in user, project, local, and managed settings, and they merge | Doc + Tested |
 | A plugin's are in `hooks/hooks.json`, and the manifest's `hooks` adds to them | Doc + Tested |
-| The form is event, then matcher group, then handlers. Handlers have no names, so `agt-view` shows `event:matcher` | Doc |
+| The form is event, then matcher group, then handlers. Handlers have no names, so `agt-env` shows `event:matcher` | Doc |
 | `disableAllHooks` turns off all but managed hooks. The last settings layer that sets it decides, so a project can undo a user's value | Doc + Tested |
 | `allowManagedHooksOnly` in managed settings blocks every other hook | Doc |
 | An invalid handler or an unknown event is skipped, and the rest still run | Tested |
@@ -112,7 +112,7 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 ## Findings not in the documentation
 
 - **Startup listing:** `claude -p hi --output-format stream-json --verbose` prints an `init` message with `agents`, `slash_commands`, and `skills` before it finds that no one is signed in, and session-start hooks run first. So it works in a temporary `HOME` and tests compare with it. It lists a skill by its folder name, even where `name` differs, so a differing `name` still follows the docs.
-- **`defaultEnabled`:** a plugin with no `enabledPlugins` entry doesn't load, even with `defaultEnabled: true`. `agt-view` reports it as `disabled`.
+- **`defaultEnabled`:** a plugin with no `enabledPlugins` entry doesn't load, even with `defaultEnabled: true`. `agt-env` reports it as `disabled`.
 
 - **`installed_plugins.json` shape:** `{"version": 2, "plugins": {"name@marketplace": [{"scope", "installPath", "version", ...}]}}`. Local-scope entries also carry `projectPath`.
 - **Approvals in `.claude.json`:** `enabledMcpjsonServers` also works in the project's entry there, but only when the folder is trusted.
@@ -122,18 +122,18 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 - **Hidden plugin skills:** `skills/.name` is listed, and a Markdown file directly under `skills/` isn't.
 - **Synced skill layout:** `skills/synced/<bucket>/<skill>/SKILL.md` was seen on a real install, one level deeper than other skills.
 - **Synced plugins:** `claude plugin list` can report `name@synced` plugins that aren't in `installed_plugins.json`.
-- **`claude mcp list` starts servers:** it checks each server's health, so it isn't safe on an untrusted project. It's also why `agt-view` doesn't call it.
+- **`claude mcp list` starts servers:** it checks each server's health, so it isn't safe on an untrusted project. It's also why `agt-env` doesn't call it.
 
 ## Assumptions
 
 - A `Skill(name)` or `Agent(name)` deny rule blocks that item, as the docs say. The startup listing still shows it, so a session would be needed to confirm it.
-- A hook in a project's settings waits for the workspace trust, like approvals in those settings. `claude -p` skips the trust dialog, so this couldn't be confirmed, and `agt-view` shows `pending`.
+- A hook in a project's settings waits for the workspace trust, like approvals in those settings. `claude -p` skips the trust dialog, so this couldn't be confirmed, and `agt-env` shows `pending`.
 - `CLAUDE_CONFIG_DIR` also moves personal skills. The docs say it moves settings, session history, and plugins, without mentioning skills.
 
-## Not covered by `agt-view`
+## Not covered by `agt-env`
 
 - MCP servers bundled in plugins, and synced skills and plugins.
-- Parent and nested project directories, because `agt-view` treats the current directory as the project root.
+- Parent and nested project directories, because `agt-env` treats the current directory as the project root.
 - Built-in skills, agents, and commands, and claude.ai connectors, which aren't in local config.
 - Hooks in skill and agent frontmatter, which only run with that skill or agent.
 - `--agents`, `--add-dir`, and other per-session sources.

@@ -6,10 +6,10 @@ import sys
 import pytest
 from conftest import SCOPE_WORDS, write_skill
 
-from agt_view.adapters.base import Context
-from agt_view.adapters.opencode import OpenCode
-from agt_view.adapters.pi import Pi
-from agt_view.cli import main
+from agt_env.adapters.base import Context
+from agt_env.adapters.opencode import OpenCode
+from agt_env.adapters.pi import Pi
+from agt_env.cli import main
 
 DESCRIBED = "description: does a thing"
 
@@ -900,7 +900,7 @@ def test_new_agent_secrets_never_printed_or_kept(machine, capsys):
         assert name in captured.out
     assert SECRET not in captured.out + captured.err
 
-    from agt_view.adapters.antigravity import Antigravity
+    from agt_env.adapters.antigravity import Antigravity
 
     context = Context(home=machine.home, cwd=machine.project, env={"PATH": ""})
     for adapter in (OpenCode(), Pi(), Antigravity()):

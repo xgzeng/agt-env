@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from agt_view.jsonc import loads_jsonc
+from agt_env.jsonc import loads_jsonc
 
 
 def test_comments_and_trailing_commas():

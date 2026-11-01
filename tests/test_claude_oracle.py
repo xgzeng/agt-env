@@ -1,6 +1,6 @@
 """Compare results with Claude Code's own listings on the same fixture.
 
-Runs only when AGT_VIEW_CLAUDE points at a real Claude Code binary, and never touches
+Runs only when AGT_ENV_CLAUDE points at a real Claude Code binary, and never touches
 the developer's configuration: HOME is temporary. `claude mcp list` starts servers to
 check their health, so fixture servers only run /bin/true.
 """
@@ -12,14 +12,14 @@ import subprocess
 import pytest
 from conftest import write_skill
 
-from agt_view.adapters.base import Context
-from agt_view.adapters.claude_code import ClaudeCode
-from agt_view.model import Kind, Scope, Status
+from agt_env.adapters.base import Context
+from agt_env.adapters.claude_code import ClaudeCode
+from agt_env.model import Kind, Scope, Status
 
-CLAUDE = os.environ.get("AGT_VIEW_CLAUDE")
+CLAUDE = os.environ.get("AGT_ENV_CLAUDE")
 STDIO = {"command": "/bin/true"}
 
-pytestmark = pytest.mark.skipif(not CLAUDE, reason="AGT_VIEW_CLAUDE is not set")
+pytestmark = pytest.mark.skipif(not CLAUDE, reason="AGT_ENV_CLAUDE is not set")
 
 
 def claude(home, cwd, *args):

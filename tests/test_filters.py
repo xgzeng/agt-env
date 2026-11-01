@@ -3,7 +3,7 @@ import json
 import pytest
 from conftest import write_skill
 
-from agt_view.cli import main
+from agt_env.cli import main
 
 
 def names(capsys, *args):

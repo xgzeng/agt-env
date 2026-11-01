@@ -74,16 +74,16 @@ def main() -> None:
             UV_CACHE_DIR=uv_directory("cache", "dir"),
             UV_PYTHON_INSTALL_DIR=uv_directory("python", "dir"),
         )
-        command = ["uvx", "--isolated", "--from", str(wheel), "agt-view"]
+        command = ["uvx", "--isolated", "--from", str(wheel), "agt-env"]
 
-        expect(run_piped([*command, "--version"], project, env), "agt-view ")
+        expect(run_piped([*command, "--version"], project, env), "agt-env ")
         expect(run_piped(command, project, env), "claude-code", "U/skill", "smoke-skill", "enabled")
         expect(run_piped([*command, "--detail"], project, env), "Description:  Works")
         # The terminal output needs Rich, so this also checks that the wheel declares it.
         expect(run_on_terminal(command, project, env), "╭", "●", "smoke-skill", "Works")
 
         if marker.exists():
-            raise SystemExit("agt-view ran an agent binary")
+            raise SystemExit("agt-env ran an agent binary")
     print(f"{wheel.name} works")
 
 

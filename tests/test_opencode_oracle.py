@@ -1,6 +1,6 @@
 """Compare results with OpenCode's own server API on the same fixture.
 
-Runs only when AGT_VIEW_OPENCODE points at a real OpenCode binary, and never touches the
+Runs only when AGT_ENV_OPENCODE points at a real OpenCode binary, and never touches the
 developer's configuration: HOME is temporary, and so is the background service, which
 gets its own port and is stopped afterwards.
 """
@@ -17,15 +17,15 @@ import urllib.request
 import pytest
 from conftest import write_skill
 
-from agt_view.adapters.base import Context
-from agt_view.adapters.opencode import OpenCode
-from agt_view.model import Kind, Status
+from agt_env.adapters.base import Context
+from agt_env.adapters.opencode import OpenCode
+from agt_env.model import Kind, Status
 
-OPENCODE = os.environ.get("AGT_VIEW_OPENCODE")
+OPENCODE = os.environ.get("AGT_ENV_OPENCODE")
 PLUGIN = "export default {id: 'x', setup: async () => ({})}\n"
 LOCAL = {"type": "local", "command": ["/bin/true"]}
 
-pytestmark = pytest.mark.skipif(not OPENCODE, reason="AGT_VIEW_OPENCODE is not set")
+pytestmark = pytest.mark.skipif(not OPENCODE, reason="AGT_ENV_OPENCODE is not set")
 
 
 def write(path, content):

@@ -6,12 +6,12 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from agt_view import __version__
-from agt_view.adapters import ADAPTERS
-from agt_view.adapters.base import Context
-from agt_view.filters import ItemFilter, select_reports
-from agt_view.model import AgentReport, Item, Kind, Scope
-from agt_view.render_plain import clean, render_report
+from agt_env import __version__
+from agt_env.adapters import ADAPTERS
+from agt_env.adapters.base import Context
+from agt_env.filters import ItemFilter, select_reports
+from agt_env.model import AgentReport, Item, Kind, Scope
+from agt_env.render_plain import clean, render_report
 
 _AGENT_ALIASES = {"claude": "claude-code", "agy": "antigravity"}
 
@@ -22,10 +22,10 @@ def _agent_id(value: str) -> str:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agt-view",
+        prog="agt-env",
         description="List what each coding agent can use from this directory.",
     )
-    parser.add_argument("--version", action="version", version=f"agt-view {__version__}")
+    parser.add_argument("--version", action="version", version=f"agt-env {__version__}")
     parser.add_argument(
         "keywords",
         nargs="*",
@@ -144,7 +144,7 @@ def _run(args: argparse.Namespace, context: Context, use_rich: bool) -> None:
 
     if use_rich:
         # Imported here so that plain output doesn't pay for loading Rich.
-        from agt_view import render_pretty
+        from agt_env import render_pretty
 
         console = render_pretty.make_console()
         render_pretty.print_reports(
@@ -201,6 +201,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         # The reader closed the pipe, as with `| head`; stop quietly.
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
     except OSError as error:
-        print(f"agt-view: {clean(str(error))}", file=sys.stderr)
+        print(f"agt-env: {clean(str(error))}", file=sys.stderr)
         return 1
     return 0

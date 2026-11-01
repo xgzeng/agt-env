@@ -13,7 +13,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from agt_view.adapters.base import (
+from agt_env.adapters.base import (
     INVALID_SERVER,
     MISSING_PLUGIN,
     Context,
@@ -29,10 +29,10 @@ from agt_view.adapters.base import (
     read_json,
     unique_roots,
 )
-from agt_view.hooks import Handler, handlers, hook_item
-from agt_view.mcp import remote_details, stdio_details
-from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
-from agt_view.skills import FoundSkill, scan_skills
+from agt_env.hooks import Handler, handlers, hook_item
+from agt_env.mcp import remote_details, stdio_details
+from agt_env.model import AgentReport, Finding, Item, Kind, Scope, Status
+from agt_env.skills import FoundSkill, scan_skills
 
 _MAX_DEPTH = 6
 _PLUGIN_MANIFEST = Path(".codex-plugin") / "plugin.json"

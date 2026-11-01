@@ -1,4 +1,4 @@
-# agt-view
+# agt-env
 
 A read-only CLI that shows what each coding agent on your machine can use from the current directory.
 
@@ -9,27 +9,27 @@ A read-only CLI that shows what each coding agent on your machine can use from t
 Run it from your project root to include project-level configuration. No install is needed with [uv](https://docs.astral.sh/uv/):
 
 ```sh
-uvx agt-view                            # list everything for active agents
-uvx agt-view --all                      # also show agents not both installed and configured
-uvx agt-view -a codex -k mcp            # filter by agent and kind
-uvx agt-view -n my-skill --detail       # filter by name, and add paths and other details
-uvx agt-view "browser test" lint        # search all fields: (browser and test) or lint
+uvx agt-env                            # list everything for active agents
+uvx agt-env --all                      # also show agents not both installed and configured
+uvx agt-env -a codex -k mcp            # filter by agent and kind
+uvx agt-env -n my-skill --detail       # filter by name, and add paths and other details
+uvx agt-env "browser test" lint        # search all fields: (browser and test) or lint
 ```
 
-`agt-view` only reads files. It never changes your configuration or runs your agents.
+`agt-env` only reads files. It never changes your configuration or runs your agents.
 
 Output is plain text when piped, or with `--no-color` or `NO_COLOR`.
 
-Problems are shown with the items they affect: why an item is `broken`, and when a same-named item is used instead (`shadowed`). Search for them like anything else, as in `uvx agt-view shadowed`.
+Problems are shown with the items they affect: why an item is `broken`, and when a same-named item is used instead (`shadowed`). Search for them like anything else, as in `uvx agt-env shadowed`.
 
 ## Development
 
 ```sh
-uv run agt-view   # run from source
+uv run agt-env   # run from source
 uv run pytest     # run the tests
 
 # Also compare results with real agents, in a temporary HOME
-AGT_VIEW_CLAUDE=/path/to/claude AGT_VIEW_CODEX=/path/to/codex \
-AGT_VIEW_OPENCODE=/path/to/opencode AGT_VIEW_PI=/path/to/pi AGT_VIEW_AGY=/path/to/agy \
+AGT_ENV_CLAUDE=/path/to/claude AGT_ENV_CODEX=/path/to/codex \
+AGT_ENV_OPENCODE=/path/to/opencode AGT_ENV_PI=/path/to/pi AGT_ENV_AGY=/path/to/agy \
 uv run pytest
 ```
