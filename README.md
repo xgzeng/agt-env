@@ -2,7 +2,7 @@
 
 A read-only CLI that shows what each coding agent on your machine can use from the current directory.
 
-**Status:** early development. It currently lists **skills**, **MCP servers**, and **plugins** for **Claude Code**, **Codex**, **OpenCode**, **Pi**, and **Antigravity CLI**. More agents are planned; see the [product requirements](docs/PRD.md). [Agent discovery rules](docs/agents/README.md) describes how each agent finds these.
+**Status:** early development. It currently lists **skills**, **MCP servers**, **plugins**, **hooks**, **subagents**, and **commands** for **Claude Code**, **Codex**, **OpenCode**, **Pi**, and **Antigravity CLI**. More agents are planned; see the [product requirements](docs/PRD.md). [Agent discovery rules](docs/agents/README.md) describes how each agent finds these.
 
 ## Usage
 

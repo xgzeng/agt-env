@@ -1,6 +1,6 @@
 # OpenCode
 
-Tested version: 2.2.2. See [evidence labels](README.md#evidence-labels).
+Tested version: 2.2.5. See [evidence labels](README.md#evidence-labels).
 
 ## Official documentation
 
@@ -85,7 +85,26 @@ Permissions control skills:
 | A `-` prefix on an ID or wildcard disables a plugin | Doc + Tested |
 | A plugin directory's `skills/` isn't read, so it contributes no skills | Tested |
 
+## Agents and commands
+
+| Rule | Evidence |
+|---|---|
+| Agents are `*.md` under `agents/` or `agent/`, in the global directory and `.opencode`, searched recursively | Doc + Tested |
+| Commands are the same under `commands/` or `command/` | Doc + Tested |
+| The ID is the path without its extension. A `name` field doesn't change it | Doc + Tested |
+| Config entries are under `agents` and `commands` (V2) or `agent` and `command` (V1) | Doc + Tested |
+| A later definition replaces an earlier one with the same ID. `agt-view` shows the winner, with a finding naming what it overrides | Doc + Tested |
+| Within a directory, Markdown files apply after that directory's config files, so `.opencode/agents` beats a root `opencode.json`, which beats global Markdown | Tested |
+| `disabled: true` (V2) or `disable: true` (V1) removes an agent, including a built-in | Doc + Tested |
+| A config command with no `template` is dropped | Doc + Tested |
+| A command can have the same name as a built-in, and replaces it | Doc + Tested |
+
+OpenCode has no hook config. Hooks only come from plugin code, which `agt-view` doesn't run.
+
 ## Findings not in the documentation
+
+- **Hidden files:** `.name.md` loads as an agent or command with that name, dot included.
+- **`.claude` directories:** `.claude/agents` and `.claude/commands` aren't read, unlike `.claude/skills`.
 
 - **Skill IDs:** a skill's ID is its directory or file name, without any parent path. `skills/group/nested/SKILL.md` has the ID `nested`, and the `name` field only changes the display name. Permission rules are documented to match IDs.
 - **What "six directories" counts:** `SKILL.md` can be at most five directories below a source. The file itself is the sixth level.
@@ -125,7 +144,8 @@ Permissions control skills:
 
 ## Not covered by `agt-view`
 
-- Built-in skills and plugins.
+- Built-in skills, plugins, agents, and commands.
+- Hooks, agents, and commands that plugins register in code.
 - Parent project directories, because `agt-view` treats the current directory as the project root.
 - Remote config and `OPENCODE_CONFIG_CONTENT`.
 - Skills from a URL in the `skills` config.

@@ -102,6 +102,39 @@ def skill_item(
     )
 
 
+def definition_item(
+    agent: str,
+    found: FoundSkill,
+    kind: Kind,
+    native_kind: str,
+    scope: Scope,
+    status: Status,
+    *,
+    name: str,
+    description: str = "",
+    problem: str = "",
+) -> Item:
+    """Build an item for a Markdown command or agent. `problem` is why the agent refuses it."""
+    if found.broken:
+        status = Status.BROKEN
+    return Item(
+        name=name,
+        kind=kind,
+        native_kind=native_kind,
+        agent=agent,
+        scope=scope,
+        status=status,
+        description=description,
+        source_path=found.path,
+        resolved_path=found.resolved_path,
+        findings=[Finding(found.problem or problem)] if status is Status.BROKEN else [],
+    )
+
+
+def first_line(text: str) -> str:
+    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+
+
 def mcp_item(
     agent: str, name: str, details: dict | None, scope: Scope, status: Status, path: Path
 ) -> Item:
@@ -149,10 +182,27 @@ def loads_skills(plugin: Item) -> bool:
     return plugin.status not in (Status.DISABLED, Status.SHADOWED, Status.BROKEN)
 
 
-def mark_bundled(skill: Item, plugin: Item, name: str) -> Item:
-    """Make a skill item report the plugin it came from, under the name the agent gives it."""
+def marketplace_suffix(plugin_id: str) -> str:
+    """Return the `@marketplace` of a plugin ID."""
+    name, at, marketplace = plugin_id.rpartition("@")
+    return f"{at}{marketplace}" if name else ""
+
+
+def mark_bundled(
+    skill: Item,
+    plugin: Item,
+    name: str,
+    native_kind: str = "plugin skill",
+    *,
+    prefix: str = "",
+) -> Item:
+    """Make an item report the plugin it came from, under the name the agent gives it.
+
+    `prefix` is the part of the name that the plugin adds.
+    """
     skill.name = name
-    skill.native_kind = "plugin skill"
+    skill.name_prefix = prefix
+    skill.native_kind = native_kind
     skill.details["plugin"] = plugin.name
     if skill.status is Status.ENABLED:
         skill.status = plugin.status

@@ -119,6 +119,54 @@ def scan_markdown_skills(root: Path) -> tuple[list[FoundSkill], list[str]]:
     return found, warnings
 
 
+def read_markdown(path: Path, warnings: list[str]) -> FoundSkill:
+    """Read one Markdown definition, such as a command or an agent."""
+    found = FoundSkill(
+        path,
+        path,
+        Path(os.path.realpath(path)),
+        broken=True,
+        standalone=True,
+        problem=_MISSING_TARGET if _is_dangling(path) else "file can't be read",
+    )
+    if os.path.isfile(path):
+        _load(found, warnings)
+    return found
+
+
+def find_markdown(
+    root: Path, warnings: list[str], *, recursive: bool = True, include_hidden: bool = True
+) -> list[FoundSkill]:
+    """Read the `*.md` files under root. A missing root is normal; an unreadable one warns."""
+    found: list[FoundSkill] = []
+    ancestors = {os.path.realpath(root)}
+
+    def visit(directory: Path) -> None:
+        try:
+            with os.scandir(directory) as iterator:
+                names = sorted(entry.name for entry in iterator)
+        except (FileNotFoundError, NotADirectoryError):
+            return
+        except OSError as error:
+            warnings.append(f"cannot read {directory}: {error.strerror}")
+            return
+        for name in names:
+            if name.startswith(".") and not include_hidden:
+                continue
+            path = directory / name
+            if os.path.isdir(path):
+                real = os.path.realpath(path)
+                if recursive and real not in ancestors:
+                    ancestors.add(real)
+                    visit(path)
+                    ancestors.discard(real)
+            elif name.endswith(".md"):
+                found.append(read_markdown(path, warnings))
+
+    visit(root)
+    return found
+
+
 def _is_dangling(path: Path) -> bool:
     return os.path.islink(path) and not os.path.exists(path)
 

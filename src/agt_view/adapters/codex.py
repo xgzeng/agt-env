@@ -6,6 +6,8 @@ compares results with the real agent.
 """
 
 import functools
+import hashlib
+import json
 import os
 import re
 import tomllib
@@ -17,21 +19,27 @@ from agt_view.adapters.base import (
     Context,
     config_dir,
     is_inside_plugin,
+    list_entries,
     listed_paths,
     load_once,
     loads_skills,
     mark_bundled,
     mark_shadowed,
+    marketplace_suffix,
     read_json,
     unique_roots,
 )
+from agt_view.hooks import Handler, handlers, hook_item
 from agt_view.mcp import remote_details, stdio_details
 from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
 from agt_view.skills import FoundSkill, scan_skills
 
 _MAX_DEPTH = 6
 _PLUGIN_MANIFEST = Path(".codex-plugin") / "plugin.json"
+_DEFAULT_HOOK_TIMEOUT = 600
+_SUPPORTED_HANDLERS = ("command", "mcp_tool")
 _SEMVER = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?")
+_AGENT_FIELDS = "needs a name, description, and developer_instructions, which Codex requires"
 # A turned-off project entry still replaces the user's.
 _ENTRY_NAME_TAKERS = frozenset({Status.ENABLED, Status.DISABLED})
 
@@ -95,17 +103,92 @@ class Codex:
             _mark_replaced_plugins(plugins_by_layer, project_path)
         plugins = [plugin for layer in plugins_by_layer for plugin in layer]
         report.items.extend(plugins)
+        loaded = [plugin for plugin in plugins if loads_skills(plugin)]
         report.items.extend(
             load_once(
                 [
                     skill
-                    for plugin in plugins
-                    if loads_skills(plugin)
+                    for plugin in loaded
                     for skill in self._plugin_skills(plugin, disabled, report.warnings)
                 ]
             )
         )
+
+        policy = _HookPolicy(user_config)
+        for config, scope, path, default in layers:
+            # Agents and hooks in a project's `.codex` wait for the same trust as its config.
+            directory = path.parent
+            report.items.extend(self._agents(directory / "agents", scope, default, config, report))
+            hooks_file = directory / "hooks.json"
+            hooks, ok = read_json(hooks_file, report.warnings)
+            if ok and _hooks_are_valid(hooks, hooks_file, report.warnings):
+                report.items.extend(
+                    policy.items(self.id, hooks.get("hooks"), scope, default, hooks_file)
+                )
+            report.items.extend(policy.items(self.id, config.get("hooks"), scope, default, path))
+        for plugin in loaded:
+            report.items.extend(self._plugin_hooks(plugin, policy, report.warnings))
         return report
+
+    def _agents(
+        self, root: Path, scope: Scope, default: Status, config: dict, report: AgentReport
+    ) -> list[Item]:
+        settings = config.get("agents")
+        off = isinstance(settings, dict) and settings.get("enabled") is False
+        items = []
+        for path in list_entries(root, report.warnings):
+            if path.suffix != ".toml":
+                continue
+            definition = _read_toml(path, report.warnings)
+            fields = definition or {}
+            valid = all(
+                isinstance(fields.get(key), str)
+                for key in ("name", "description", "developer_instructions")
+            )
+            status = Status.DISABLED if off else default
+            name = fields.get("name") if isinstance(fields.get("name"), str) else path.stem
+            description = fields.get("description")
+            items.append(
+                Item(
+                    name=name,
+                    kind=Kind.SUBAGENT,
+                    native_kind="agent",
+                    agent=self.id,
+                    scope=scope,
+                    status=status if valid else Status.BROKEN,
+                    description=description if isinstance(description, str) else "",
+                    source_path=path,
+                    resolved_path=Path(os.path.realpath(path)),
+                    findings=[] if valid else [Finding(_AGENT_FIELDS)],
+                )
+            )
+        return items
+
+    def _plugin_hooks(self, plugin: Item, policy: "_HookPolicy", warnings: list[str]) -> list[Item]:
+        root = _active_version(plugin.source_path)
+        manifest = None if root is None else _plugin_manifest(root)
+        if manifest is None:
+            return []
+        declared = manifest.get("hooks")
+        # A manifest's path replaces the default file.
+        relative = (
+            os.path.normpath(declared)
+            if isinstance(declared, str) and is_inside_plugin(declared)
+            else "hooks/hooks.json"
+        )
+        hooks, ok = read_json(root / relative, warnings)
+        if not ok or not _hooks_are_valid(hooks, root / relative, warnings):
+            return []
+        items = policy.items(
+            self.id,
+            hooks.get("hooks"),
+            plugin.scope,
+            Status.ENABLED,
+            root / relative,
+            key_source=f"{plugin.name}:{relative}",
+            native_kind="plugin hook",
+        )
+        return [mark_bundled(item, plugin, item.name, "plugin hook") for item in items]
 
     def _plugin_skills(
         self, plugin: Item, disabled: set[str] | None, warnings: list[str]
@@ -124,7 +207,9 @@ class Codex:
             warnings.extend(scan_warnings)
             for skill in found:
                 item = self._skill(skill, plugin.scope, disabled)
-                items.append(mark_bundled(item, plugin, f"{prefix}:{item.name}"))
+                items.append(
+                    mark_bundled(item, plugin, f"{prefix}:{item.name}", prefix=f"{prefix}:")
+                )
         return items
 
     def _skill(self, skill: FoundSkill, scope: Scope, disabled: set[str] | None) -> Item:
@@ -200,6 +285,7 @@ class Codex:
             items.append(
                 Item(
                     name=plugin_id,
+                    name_suffix=marketplace_suffix(plugin_id),
                     kind=Kind.PLUGIN,
                     native_kind="plugin",
                     agent=self.id,
@@ -251,6 +337,110 @@ def _server_details(entry: object) -> dict[str, object] | None:
     if isinstance(entry.get("url"), str):
         return remote_details("streamable_http", entry["url"], entry.get("http_headers"))
     return None
+
+
+class _HookPolicy:
+    """Decides a hook's status from the user's config. A hook must be reviewed before it runs."""
+
+    def __init__(self, user_config: dict | None) -> None:
+        config = user_config or {}
+        features = config.get("features")
+        self.off = isinstance(features, dict) and features.get("hooks") is False
+        hooks = config.get("hooks")
+        state = hooks.get("state") if isinstance(hooks, dict) else None
+        self.state = state if isinstance(state, dict) else {}
+
+    def items(
+        self,
+        agent: str,
+        events: object,
+        scope: Scope,
+        default: Status,
+        path: Path,
+        *,
+        key_source: str | None = None,
+        native_kind: str = "hook",
+    ) -> list[Item]:
+        items = []
+        for handler in handlers(events):
+            if handler.event == "state":
+                continue
+            entry = handler.entry if isinstance(handler.entry, dict) else {}
+            kind = entry.get("type", "command")
+            key = _hook_key(key_source or str(path), handler)
+            state = self.state.get(key)
+            state = state if isinstance(state, dict) else {}
+            status = default
+            finding = None
+            if kind not in _SUPPORTED_HANDLERS:
+                finding = Finding(f"Codex doesn't support {kind} hooks")
+                status = Status.BROKEN
+            elif self.off or state.get("enabled") is False:
+                status = Status.DISABLED
+            elif default is Status.ENABLED:
+                trusted = state.get("trusted_hash")
+                if trusted is None:
+                    status = Status.PENDING
+                elif key_source is not None:
+                    # A plugin hook's fingerprint also covers the plugin's files.
+                    status = Status.UNKNOWN
+                elif trusted != _hook_hash(handler):
+                    status = Status.PENDING
+                    finding = Finding("changed since it was trusted")
+            item = hook_item(agent, handler, scope, status, path, native_kind)
+            if finding:
+                item.status = status
+                item.findings = [finding]
+            items.append(item)
+        return items
+
+
+def _snake_case(name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def _hook_key(source: str, handler: Handler) -> str:
+    return f"{source}:{_snake_case(handler.event)}:{handler.group}:{handler.index}"
+
+
+def _hook_hash(handler: Handler) -> str:
+    """Reproduce how Codex fingerprints a hook, which is how it notices a changed one."""
+    entry = handler.entry if isinstance(handler.entry, dict) else {}
+    timeout = entry.get("timeout", _DEFAULT_HOOK_TIMEOUT)
+    if entry.get("type") == "mcp_tool":
+        normalized = {
+            "type": "mcp_tool",
+            "server": entry.get("server"),
+            "tool": entry.get("tool"),
+            "input": entry.get("input", {}),
+            "timeout": timeout,
+        }
+    else:
+        normalized = {
+            "type": "command",
+            "command": entry.get("command"),
+            "timeout": timeout,
+            "async": entry.get("async", False),
+        }
+        if entry.get("statusMessage") is not None:
+            normalized["statusMessage"] = entry["statusMessage"]
+    identity: dict[str, object] = {"event_name": _snake_case(handler.event), "hooks": [normalized]}
+    if handler.matcher is not None:
+        identity["matcher"] = handler.matcher
+    text = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"sha256:{hashlib.sha256(text.encode()).hexdigest()}"
+
+
+def _hooks_are_valid(data: dict, path: Path, warnings: list[str]) -> bool:
+    """Codex rejects a whole hooks file if one command handler can't parse."""
+    for handler in handlers(data.get("hooks")):
+        entry = handler.entry
+        if not isinstance(entry, dict) or (
+            entry.get("type", "command") == "command" and not isinstance(entry.get("command"), str)
+        ):
+            warnings.append(f"cannot read {path}: invalid hook entry")
+            return False
+    return True
 
 
 def _mark_replaced_plugins(plugins_by_layer: list[list[Item]], project_path: Path) -> None:

@@ -15,7 +15,9 @@ from urllib.parse import unquote, urlsplit
 
 from agt_view.adapters.base import (
     Context,
+    definition_item,
     first_existing,
+    first_line,
     list_entries,
     load_once,
     mark_shadowed,
@@ -30,6 +32,7 @@ from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
 from agt_view.skills import (
     SKILL_FILE,
     FoundSkill,
+    find_markdown,
     read_skill,
     scan_markdown_skills,
     scan_skills,
@@ -158,7 +161,75 @@ class OpenCode:
                 )
             )
         mark_shadowed(ranked, key=_skill_id)
+
+        # A directory's Markdown files apply after the config files in that directory.
+        places = [
+            (global_dir, Scope.USER),
+            (context.cwd, None),
+            (project_dir, Scope.PROJECT),
+            *([(extra_dir, Scope.USER)] if extra_dir else []),
+        ]
+        for kind in (Kind.SUBAGENT, Kind.COMMAND):
+            report.items.extend(self._definitions(kind, places, layers, reliable, report))
         return report
+
+    def _definitions(
+        self,
+        kind: Kind,
+        places: list[tuple[Path, Scope | None]],
+        layers: list[_Layer],
+        reliable: bool,
+        report: AgentReport,
+    ) -> list[Item]:
+        """Combine Markdown files and config entries. A later definition replaces an earlier one."""
+        singular, plural = ("agent", "agents") if kind is Kind.SUBAGENT else ("command", "commands")
+        positions = {directory: index for index, (directory, _) in enumerate(places)}
+        ordered: list[tuple[float, str, Item]] = []
+        for layer in layers:
+            # A config file named by a variable comes after the global directory's.
+            position = positions.get(layer.path.parent, 0.75 if layer.scope is Scope.USER else 99)
+            for key in (singular, plural):
+                entries = layer.data.get(key)
+                for name, entry in entries.items() if isinstance(entries, dict) else ():
+                    item = _config_definition(self.id, kind, singular, name, entry, layer)
+                    ordered.append((position, name, item))
+        for directory, scope in places:
+            if scope is None:
+                continue
+            for root in (directory / plural, directory / singular):
+                for found in find_markdown(root, report.warnings):
+                    name = found.path.relative_to(root).with_suffix("").as_posix()
+                    fields = found.fields or {}
+                    off = kind is Kind.SUBAGENT and _is_turned_off(fields)
+                    item = definition_item(
+                        self.id,
+                        found,
+                        kind,
+                        singular,
+                        scope,
+                        Status.DISABLED if off else Status.ENABLED,
+                        name=name,
+                        description=fields.get("description")
+                        or (first_line(found.body) if kind is Kind.COMMAND else ""),
+                    )
+                    ordered.append((positions[directory] + 0.5, name, item))
+        ordered.sort(key=lambda entry: entry[0])
+
+        winners: dict[str, Item] = {}
+        replaced: dict[str, Path] = {}
+        for _, name, item in ordered:
+            if name in winners and item.status is not Status.BROKEN:
+                replaced[name] = winners[name].source_path
+                item.description = item.description or winners[name].description
+                winners[name] = item
+            elif name not in winners:
+                winners[name] = item
+        for name, item in winners.items():
+            if not reliable and item.status is Status.ENABLED:
+                item.status = Status.UNKNOWN
+            if name in replaced:
+                item.findings.append(Finding("overrides the entry in", replaced[name]))
+        return list(winners.values())
 
     def _layers(
         self,
@@ -446,6 +517,35 @@ class _SkillPolicy:
             if isinstance(decision, str)
             else Status.UNKNOWN
         )
+
+
+def _is_turned_off(fields: dict) -> bool:
+    """`disabled` is the V2 field and `disable` the V1 one. Markdown values are text."""
+    return any(fields.get(key) in (True, "true") for key in ("disabled", "disable"))
+
+
+def _config_definition(
+    agent: str, kind: Kind, native_kind: str, name: str, entry: object, layer: _Layer
+) -> Item:
+    fields = entry if isinstance(entry, dict) else {}
+    # OpenCode drops a config command with no template.
+    invalid = not isinstance(entry, dict) or (
+        kind is Kind.COMMAND and not isinstance(fields.get("template"), str)
+    )
+    description = fields.get("description")
+    status = Status.DISABLED if kind is Kind.SUBAGENT and _is_turned_off(fields) else Status.ENABLED
+    return Item(
+        name=name,
+        kind=kind,
+        native_kind=native_kind,
+        agent=agent,
+        scope=layer.scope,
+        status=Status.BROKEN if invalid else status,
+        description=description if isinstance(description, str) else "",
+        source_path=layer.path,
+        resolved_path=Path(os.path.realpath(layer.path)),
+        findings=[Finding(f"invalid {native_kind} entry")] if invalid else [],
+    )
 
 
 def _is_set(context: Context, *variables: str) -> bool:

@@ -490,3 +490,19 @@ def test_never_executes_agent_binaries(machine, capsys):
 def test_no_color_when_piped(machine, capsys):
     write_skill(claude(machine) / "skills" / "one")
     assert "\x1b" not in run(capsys)[1]
+
+
+@pytest.mark.parametrize(("alias", "agent"), [("claude", "claude-code"), ("agy", "antigravity")])
+@pytest.mark.parametrize("flag", ["-a", "--agent"])
+def test_agent_option_accepts_the_binary_name(machine, capsys, alias, agent, flag):
+    assert main([flag, alias]) == 0
+    aliased = capsys.readouterr().out
+    assert main([flag, agent]) == 0
+    assert aliased == capsys.readouterr().out
+    assert aliased.startswith(agent)
+
+
+def test_agent_alias_combines_with_other_agents(machine, capsys):
+    assert main(["-a", "claude", "-a", "codex", "-a", "claude-code"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("claude-code") == 1 and "codex" in out

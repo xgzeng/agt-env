@@ -412,3 +412,100 @@ def test_a_plugin_folder_contributes_no_skills(api):
     theirs = {skill["id"] for skill in api("/api/skill")}
     assert "control" in theirs and "inside" not in theirs
     assert "inside" not in {item.name for item in scan(api, Kind.SKILL)}
+
+
+def definition_file(description="d", extra=""):
+    return f"---\ndescription: {description}\n{extra}---\nBody\n"
+
+
+def write_definitions(api, plural, singular, *, frontmatter_off=False):
+    config, project = api.home / ".config" / "opencode", api.project / ".opencode"
+    write(config / plural / "global.md", definition_file())
+    write(config / plural / "team" / "nested.md", definition_file())
+    write(config / singular / "singular.md", definition_file())
+    write(config / plural / ".hidden.md", definition_file())
+    write(config / plural / "plain.md", "Body\n")
+    write(config / plural / "text.txt", definition_file())
+    write(config / plural / "both.md", definition_file("global"))
+    write(project / plural / "both.md", definition_file("project"))
+    write(project / plural / "here.md", definition_file())
+    write(project / singular / "here-singular.md", definition_file())
+    write(api.home / ".claude" / plural / "claude-global.md", definition_file())
+    write(api.project / ".claude" / plural / "claude-here.md", definition_file())
+
+
+def test_agents_match(api):
+    write_definitions(api, "agents", "agent")
+    config = api.home / ".config" / "opencode"
+    write(config / "agents" / "off.md", definition_file(extra="disabled: true\n"))
+    write(config / "agents" / "off-v1.md", definition_file(extra="disable: true\n"))
+    write(config / "agents" / "shy.md", definition_file(extra="hidden: true\n"))
+    write(config / "agents" / "named.md", definition_file(extra="name: other\n"))
+    write(
+        config / "opencode.json",
+        {
+            "agents": {
+                "from-v2": {"description": "d"},
+                "from-v2-off": {"description": "d", "disabled": True},
+                "plan": {"disabled": True},
+                "global": {"description": "config"},
+            },
+            "agent": {"from-v1": {"description": "d"}, "from-v1-off": {"disable": True}},
+        },
+    )
+    write(config / "agents" / "over-global.md", definition_file("global file"))
+    write(
+        api.project / "opencode.json",
+        {
+            "agents": {
+                "both": {"description": "root config"},
+                "over-global": {"description": "root config"},
+            }
+        },
+    )
+    theirs = {agent["id"]: agent.get("description") or "" for agent in api("/api/agent")}
+    assert "plan" not in theirs
+    ours = {
+        item.name: item.description
+        for item in scan(api, Kind.SUBAGENT)
+        if item.status is Status.ENABLED
+    }
+    assert {name: theirs[name] for name in ours} == ours
+    assert theirs["over-global"] == "root config" and theirs["both"] == "project"
+    assert theirs["global"] == "d"
+    built_in = {"build", "general", "explore", "compaction", "title", "summary"}
+    assert set(ours) == set(theirs) - built_in
+
+
+def test_commands_match(api):
+    write_definitions(api, "commands", "command")
+    config = api.home / ".config" / "opencode"
+    write(config / "commands" / "review.md", definition_file("mine"))
+    write(config / "commands" / "empty.md", "")
+    write(
+        config / "opencode.json",
+        {
+            "commands": {"from-v2": {"template": "t"}, "no-template": {"description": "d"}},
+            "command": {"from-v1": {"template": "t"}},
+        },
+    )
+    write(config / "commands" / "over-global.md", definition_file("global file"))
+    write(
+        api.project / "opencode.json",
+        {
+            "commands": {
+                "both": {"template": "t", "description": "root config"},
+                "over-global": {"template": "t", "description": "root config"},
+            }
+        },
+    )
+    theirs = {command["name"]: command.get("description") or "" for command in api("/api/command")}
+    ours = {
+        item.name: item.description
+        for item in scan(api, Kind.COMMAND)
+        if item.status is Status.ENABLED
+    }
+    assert set(ours) == set(theirs) - {"init", "goal"}
+    assert theirs["review"] == "mine" and ours["review"] == "mine"
+    assert theirs["both"] == ours["both"] == "project"
+    assert theirs["over-global"] == ours["over-global"] == "root config"

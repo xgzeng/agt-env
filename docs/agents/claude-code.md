@@ -1,6 +1,6 @@
 # Claude Code
 
-Tested version: 2.1.314. See [evidence labels](README.md#evidence-labels).
+Tested version: 2.1.316. See [evidence labels](README.md#evidence-labels).
 
 ## Official documentation
 
@@ -70,30 +70,70 @@ Claude Code has no non-interactive skill listing, so these rules weren't confirm
 | `name` replaces the last segment of a plugin skill's name, and a name already carrying the prefix doesn't get it twice | Doc |
 | A root skill with no `name` is named after the plugin | Doc + Tested |
 | A plugin skill and a same-named skill elsewhere both load, because of the prefix | Doc |
-| Disabling a plugin unloads its skills | Doc |
+| Disabling a plugin unloads its skills | Doc + Tested |
 | `skillOverrides` doesn't affect plugin skills | Doc |
 
+## Subagents
+
+| Rule | Evidence |
+|---|---|
+| Agents are Markdown files under `agents/` in the config directory and `.claude/agents`, searched recursively, including hidden files | Doc + Tested |
+| Managed agents are in the managed directory | Doc, and the path is assumed to match skills |
+| Identity is `name`, and the file name doesn't matter | Doc + Tested |
+| No `name`, no `description`, a `name` with `:`, or one starting with `-` means the file isn't loaded. `agt-view` reports it as `broken` | Doc + Tested |
+| Precedence from highest is managed, project, user, then plugin. `agt-view` reports the loser as `shadowed` | Doc |
+| Two same-named files in one directory load one, by read order, so neither is flagged | Doc |
+| `Agent` in `permissions.deny` blocks all, and `Agent(name)` blocks one | Doc |
+| Plugin agents are under `agents/`, named `plugin:folder:name`, and fall back to the file name | Doc + Tested |
+| The manifest's `agents` replaces the default, and takes files. A directory there loaded nothing | Doc + Tested |
+
+## Commands
+
+| Rule | Evidence |
+|---|---|
+| Commands are `*.md` under `commands/` in the config directory and `.claude/commands`, searched recursively, including hidden entries | Doc + Tested |
+| The name comes from the path, with `:` between folders. A `name` field is ignored | Doc + Tested |
+| A skill beats a same-named command. `agt-view` reports the command as `shadowed` | Doc |
+| `skillOverrides: "off"` hides a command | Tested |
+| Plugin commands are under `commands/` and named `plugin:folder:name` | Doc + Tested |
+| The manifest's `commands` replaces the default. It takes a directory, a file, a list of those, or an object whose keys are the names | Doc + Tested |
+
+## Hooks
+
+| Rule | Evidence |
+|---|---|
+| Hooks are under `hooks` in user, project, local, and managed settings, and they merge | Doc + Tested |
+| A plugin's are in `hooks/hooks.json`, and the manifest's `hooks` adds to them | Doc + Tested |
+| The form is event, then matcher group, then handlers. Handlers have no names, so `agt-view` shows `event:matcher` | Doc |
+| `disableAllHooks` turns off all but managed hooks. The last settings layer that sets it decides, so a project can undo a user's value | Doc + Tested |
+| `allowManagedHooksOnly` in managed settings blocks every other hook | Doc |
+| An invalid handler or an unknown event is skipped, and the rest still run | Tested |
+
 ## Findings not in the documentation
+
+- **Startup listing:** `claude -p hi --output-format stream-json --verbose` prints an `init` message with `agents`, `slash_commands`, and `skills` before it finds that no one is signed in, and session-start hooks run first. So it works in a temporary `HOME` and tests compare with it. It lists a skill by its folder name, even where `name` differs, so a differing `name` still follows the docs.
+- **`defaultEnabled`:** a plugin with no `enabledPlugins` entry doesn't load, even with `defaultEnabled: true`. `agt-view` reports it as `disabled`.
 
 - **`installed_plugins.json` shape:** `{"version": 2, "plugins": {"name@marketplace": [{"scope", "installPath", "version", ...}]}}`. Local-scope entries also carry `projectPath`.
 - **Approvals in `.claude.json`:** `enabledMcpjsonServers` also works in the project's entry there, but only when the folder is trusted.
 - **Rejected servers:** the docs show a `Rejected` status, but `claude mcp list` left out a server rejected through `disabledMcpjsonServers`.
-- **Plugin skill listing:** `claude plugin details <id>` lists a plugin's skills, so tests compare with it. It lists a disabled plugin's skills too, so it says what a plugin contains rather than what loads. It also shows the folder name where the docs say `name` wins, so a differing `name` follows the docs.
+- **Plugin contents:** `claude plugin details <id>` lists a plugin's skills, and does so for a disabled plugin too, so it says what a plugin contains rather than what loads. The startup listing shows a disabled plugin's skills, agents, and commands are gone.
 - **Manifest paths:** a `skills` path without `./`, or one that leaves the plugin, makes installing it fail.
 - **Hidden plugin skills:** `skills/.name` is listed, and a Markdown file directly under `skills/` isn't.
-- **Plugins not in `enabledPlugins`:** the docs say `defaultEnabled` is true by default, but `claude plugin list --json` reported an unset plugin as disabled. That plugin's marketplace wasn't installed, which may explain it.
 - **Synced skill layout:** `skills/synced/<bucket>/<skill>/SKILL.md` was seen on a real install, one level deeper than other skills.
 - **Synced plugins:** `claude plugin list` can report `name@synced` plugins that aren't in `installed_plugins.json`.
 - **`claude mcp list` starts servers:** it checks each server's health, so it isn't safe on an untrusted project. It's also why `agt-view` doesn't call it.
 
 ## Assumptions
 
-- A `Skill(plugin:skill)` deny rule blocks a plugin skill, because the docs describe rules by skill name. No listing shows this without signing in.
-- A skill from a plugin whose `enabledPlugins` entry is unset shows as `unknown`, like its plugin.
+- A `Skill(name)` or `Agent(name)` deny rule blocks that item, as the docs say. The startup listing still shows it, so a session would be needed to confirm it.
+- A hook in a project's settings waits for the workspace trust, like approvals in those settings. `claude -p` skips the trust dialog, so this couldn't be confirmed, and `agt-view` shows `pending`.
 - `CLAUDE_CONFIG_DIR` also moves personal skills. The docs say it moves settings, session history, and plugins, without mentioning skills.
 
 ## Not covered by `agt-view`
 
 - MCP servers bundled in plugins, and synced skills and plugins.
 - Parent and nested project directories, because `agt-view` treats the current directory as the project root.
-- Built-in skills and claude.ai connectors, which aren't in local config.
+- Built-in skills, agents, and commands, and claude.ai connectors, which aren't in local config.
+- Hooks in skill and agent frontmatter, which only run with that skill or agent.
+- `--agents`, `--add-dir`, and other per-session sources.

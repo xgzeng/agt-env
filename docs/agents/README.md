@@ -1,16 +1,16 @@
 # Agent discovery rules
 
-How each supported agent finds its skills, MCP servers, and extensions, where those rules are documented, and what testing found that the documentation doesn't say.
+How each supported agent finds its skills, MCP servers, extensions, hooks, subagents, and commands, where those rules are documented, and what testing found that the documentation doesn't say.
 
 | Agent | Binary | Version tested | How it was tested |
 |---|---|---|---|
-| [Claude Code](claude-code.md) | `claude` | 2.1.314 | `claude mcp list`, `claude plugin list --json` |
+| [Claude Code](claude-code.md) | `claude` | 2.1.316 | `claude mcp list`, `claude plugin list --json`, `claude plugin details`, the startup listing of `claude -p` |
 | [Codex](codex.md) | `codex` | 0.166.0 | `codex app-server`, `codex mcp list --json` |
-| [OpenCode](opencode.md) | `opencode` | 2.2.2 | Server API (`/api/skill`, `/api/mcp`, `/api/plugin`) |
+| [OpenCode](opencode.md) | `opencode` | 2.2.5 | Server API (`/api/skill`, `/api/mcp`, `/api/plugin`, `/api/agent`, `/api/command`) |
 | [Pi](pi.md) | `pi` | 1.4.0 | `pi --mode rpc`, `pi mcp list` |
-| [Antigravity CLI](antigravity.md) | `agy` | 1.4.11 | `agy mcp list`, `agy plugin list`, signed-in `/skills`, `/mcp`, and `/plugin` |
+| [Antigravity CLI](antigravity.md) | `agy` | 1.4.12 | `agy mcp list`, `agy plugin list`, `agy agents`, signed-in `/skills`, `/mcp`, and `/plugin` |
 
-Findings were recorded on 2026-10-30. Agents change often, so treat these as true of the versions above. Except where a page says otherwise, each agent ran against test fixtures in a temporary `HOME`.
+Findings were last checked on 2026-10-31. Agents change often, so treat these as true of the versions above. Except where a page says otherwise, each agent ran against test fixtures in a temporary `HOME`.
 
 ## Evidence labels
 

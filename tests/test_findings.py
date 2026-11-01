@@ -547,11 +547,11 @@ def test_findings_are_rows_below_their_item(claude, capsys):
         "claude-code  ~/.claude",
         "  SCOPE/KIND  NAME  STATUS",
         "  P/skill     lint  shadowed",
-        "              ! shadowed by ~/.claude/skills/lint",
+        "                              ! shadowed by ~/.claude/skills/lint",
         "  U/skill     fine  enabled",
         "  U/skill     lint  enabled",
         "  U/skill     old   broken",
-        "              ! symlink target is missing",
+        "                              ! symlink target is missing",
     ]
 
 
@@ -576,9 +576,10 @@ def test_detail_shows_findings_as_fields(claude, capsys):
     out = run(capsys, "--detail", "-s", "project")
     assert out.splitlines() == [
         "claude-code  ~/.claude",
-        "SCOPE/KIND  NAME  STATUS",
-        "--------------------------",
-        "P/skill     lint  shadowed",
+        "SCOPE/KIND  NAME",
+        "----------------",
+        "P/skill     lint",
+        "            Status:       shadowed",
         "            Description:  two",
         "            Path:         ./.claude/skills/lint",
         "            Finding:      shadowed by ~/.claude/skills/lint",
@@ -615,17 +616,58 @@ def test_rich_shows_the_same_findings(claude, rich_mode, capsys):
     write_skill(claude.project_skills / "lint", named("lint"))
     raw = run(capsys)
     out = COLOR_CODE.sub("", raw)
-    assert "◌ shadowed" in out
+    assert "◌" in out
     lines = out.splitlines()
-    name_column = next(line for line in lines if "SCOPE/KIND" in line).index("NAME")
+    column = next(line for line in lines if "SCOPE" in line).index("DESCRIPTION")
     for text in ("! shadowed by ~/.claude/skills/lint", "! symlink target is missing"):
         line = next(line for line in lines if text in line)
-        assert line.index(text) == name_column
+        assert line.index(text) == column
         # Directly below its item.
-        assert lines[lines.index(line) - 1].split()[1] in ("P/skill", "U/skill")
+        assert lines[lines.index(line) - 1].split()[1] in ("Prj", "Usr")
     assert "\x1b[1;31m! " in raw and "\x1b[1;33m! " in raw
     # Inside the panel: nothing printed after the bottom border.
     assert out.rstrip().endswith("╯")
+
+
+@pytest.mark.parametrize("columns", ["100", "30"])  # Rows that fit and rows that fold.
+def test_rich_dims_a_shadowed_name(claude, rich_mode, capsys, monkeypatch, columns):
+    monkeypatch.setenv("COLUMNS", columns)
+    write_skill(claude.skills / "lint", named("lint"))
+    write_skill(claude.project_skills / "lint", named("lint"))
+    raw = run(capsys)
+    assert raw.count("\x1b[2mlint") == 1
+    assert raw.count("\x1b[1mlint") == 1
+    assert raw.index("\x1b[2mlint") < raw.index("\x1b[1mlint")  # The project's row comes first.
+
+
+def test_plain_output_does_not_mark_a_shadowed_name(claude, capsys):
+    write_skill(claude.skills / "lint", named("lint"))
+    write_skill(claude.project_skills / "lint", named("lint"))
+    assert "\x1b" not in run(capsys)
+
+
+def test_rich_narrow_terminal_moves_findings_to_the_name_column(
+    claude, rich_mode, capsys, monkeypatch
+):
+    monkeypatch.setenv("COLUMNS", "24")
+    claude.skills.mkdir()
+    (claude.skills / "old").symlink_to(claude.home / "gone")
+    lines = COLOR_CODE.sub("", run(capsys)).splitlines()
+    name = next(line for line in lines if "SCOPE" in line).index("NAME")
+    assert next(line for line in lines if "! symlink" in line).index("!") == name
+
+
+def test_detail_findings_stay_at_the_name_column(claude, capsys):
+    claude.skills.mkdir()
+    (claude.skills / "old").symlink_to(claude.home / "gone")
+    lines = run(capsys, "--detail").splitlines()
+    name = next(line for line in lines if "SCOPE/KIND" in line).index("NAME")
+    assert next(line for line in lines if "Finding:" in line).index("Finding") == name
+
+
+def test_plain_output_keeps_the_status_heading(claude, capsys):
+    write_skill(claude.skills / "lint", named("lint"))
+    assert run(capsys).splitlines()[1] == "  SCOPE/KIND  NAME  STATUS"
 
 
 def test_rich_detail_shows_findings_under_the_item(claude, rich_mode, capsys):

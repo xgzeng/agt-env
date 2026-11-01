@@ -35,9 +35,10 @@ def test_lines_start_at_the_name_column(agents, capsys, tmp_path):
     assert (code, err) == (0, "")
     assert out.splitlines() == [
         "claude-code  ~/.claude",
-        "SCOPE/KIND  NAME    STATUS",
-        "---------------------------",
-        "U/skill     common  enabled",
+        "SCOPE/KIND  NAME",
+        "------------------",
+        "U/skill     common",
+        "            Status:       enabled",
         "            Description:  Does a thing",
         "            Path:         ~/.claude/skills/common (symlink)",
         f"            Real path:    {target}",
@@ -50,13 +51,15 @@ def test_a_line_separates_the_head_and_each_item(agents, capsys):
     write_skill(skills / "two", "name: two\ndescription: d")
     assert run(capsys, "-a", "claude-code")[1].splitlines() == [
         "claude-code  ~/.claude",
-        "SCOPE/KIND  NAME  STATUS",
-        "-------------------------",
-        "U/skill     one   enabled",
+        "SCOPE/KIND  NAME",
+        "----------------",
+        "U/skill     one",
+        "            Status:       enabled",
         "            Description:  d",
         "            Path:         ~/.claude/skills/one",
-        "-------------------------",
-        "U/skill     two   enabled",
+        "----------------",
+        "U/skill     two",
+        "            Status:       enabled",
         "            Description:  d",
         "            Path:         ~/.claude/skills/two",
     ]

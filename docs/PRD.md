@@ -72,7 +72,7 @@ Agents appear in rank order (see section 6), each with a header showing its stat
 
 **Filters:** different filters narrow each other.
 
-- `-a` shows only the named agents, even ones hidden by default.
+- `-a` shows only the named agents, even ones hidden by default. It takes an agent's ID, or `claude` for `claude-code` and `agy` for `antigravity`.
 - `-n` matches a case-insensitive part of the item name. Repeating it widens the results.
 - Keywords match a case-insensitive part of everything shown for an item, including its details and path. Words in one argument narrow and separate arguments widen, so `agt-view "browser test" lint` finds (browser and test) or lint.
 - With `-n` or keywords, agents with no matches are left out. If none are left, the output says so.
@@ -101,26 +101,29 @@ Hidden: agent-c, agent-d. Use --all for details.
 ```text
 $ agt-view -a agent-b -n my-skill --detail
 agent-b  /opt/agent-b (set by AGENT_B_HOME)
-SCOPE/KIND  NAME      STATUS
------------------------------
-U/skill     my-skill  enabled
+SCOPE/KIND  NAME
+--------------------
+U/skill     my-skill
+            Status:       enabled
             Description:  Does a thing
             Path:         /opt/agent-b/skills/my-skill (symlink)
             Real path:    /opt/shared/my-skill
             Shared with:  agent-a
 ```
 
-Problems are shown with the items they affect, in the same output, with no separate command. Each finding is a row directly below its item, starting at the `NAME` column, and an agent without any looks as above. With `--detail`, each finding is a `Finding:` line among the item's details.
+What a plugin brings is listed directly below its row, when that row is shown. If a filter hides the plugin, those items take their normal place.
+
+Problems are shown with the items they affect, in the same output, with no separate command. Each finding is a row directly below its item, starting where the `DESCRIPTION` column starts, or at `NAME` if a narrow terminal leaves too little room. An agent without any looks as above. With `--detail`, each finding is a `Finding:` line among the item's details.
 
 ```text
 $ agt-view -a agent-a
 agent-a  ~/.agent-a
   SCOPE/KIND  NAME      STATUS
   P/skill     my-skill  shadowed
-              ! shadowed by ~/.agent-a/skills/my-skill
+                                  ! shadowed by ~/.agent-a/skills/my-skill
   U/skill     my-skill  enabled
   U/skill     old       broken
-              ! symlink target is missing
+                                  ! symlink target is missing
 ```
 
 Findings can be searched like everything else shown for an item, and they don't change the exit code. A config file that can't be read stays a warning on stderr (FR-17).
@@ -154,6 +157,7 @@ agent-d  installed, not configured
 - **FR-6 (P0):** Treat items that resolve to the same real path as shared, naming the other agents under `--detail`, while still listing them under each agent.
 - **FR-8 (P1):** When an agent's precedence rules mean a same-named item is used instead, report the item as `shadowed` and show a finding naming the winner. Only rules with evidence count, so an agent whose rule isn't known is never flagged.
 - **FR-23 (P1):** Show why each `broken` item is broken. The reason is fixed text, never file contents.
+- **FR-24 (P1):** List hooks, custom agents, and custom commands wherever the agent has them, by the same rules as other items: a status from evidence, and the plugin named under `--detail`. A hook is named by its event and matcher unless the agent gives it a name. Its description is what it runs, with anything that looks like a secret masked (FR-12).
 - **FR-9 (P1):** List skills that plugins and packages bring, under the name the agent gives them, such as `my-plugin:my-skill`, and with `--detail` name the plugin. A skill follows its plugin's status, and one whose plugin is off or missing isn't listed.
 - **FR-10 (P0):** Only treat a directory as a skill if it meets the agent's definition. A directory that only groups other skills must be descended into or skipped, not counted.
 - **FR-20 (P0):** Resolve locations from the environment, not fixed paths: honor `HOME`, XDG variables, and each agent's documented config-directory overrides. When an override moves an agent's location away from its default, the output shows the location in use and the variable that set it in the agent's header.
@@ -185,14 +189,14 @@ Every item has these fields, and adapters must fill them consistently:
 ### 5.5 Safety
 
 - **FR-11 (P0):** Never modify files in agent config directories or anywhere else.
-- **FR-12 (P0):** Never display secret values in any output. Env values, header values, tokens, and URL credentials are omitted or masked. Agent credential stores are never opened. A skill file that is a symlink to anything but a Markdown file isn't opened, and the skill is reported as `broken`, because a skill's text can become its description and a cloned repository could otherwise display any file.
+- **FR-12 (P0):** Never display secret values in any output. Env values, header values, tokens, and URL credentials are omitted or masked. A hook's command or prompt is free text, so it's shown after masking the forms a secret usually takes, which can't catch a secret that looks like any other word. Agent credential stores are never opened. A skill file that is a symlink to anything but a Markdown file isn't opened, and the skill is reported as `broken`, because a skill's text can become its description and a cloned repository could otherwise display any file.
 - **FR-13 (P0):** Never run code from inspected configuration. Listing an MCP server must not start it, because a repository's project config can name any command.
 - **FR-14 (P2):** `probe` is the only command that may run other programs. It must be explicitly invoked, apply a timeout per agent, and show what it will execute.
 - **FR-15 (P0):** Treat inspected file contents as untrusted. Strip terminal escape sequences from names and descriptions before display.
 
 ### 5.6 Output and errors
 
-- **FR-16 (P0):** On a color terminal, show each agent in a colored panel, with a symbol and a color for each status. Use plain aligned text when piped, with `--no-color`, when `NO_COLOR` is set, when `TERM` is `dumb`, or when the output encoding isn't UTF-8. The illustrative output above is the plain form. Without `--detail`, the terminal table also shows the start of each description, cut to the space left in the terminal, and leaves the column out when too little space is left. Other long values wrap on a terminal and are never cut.
+- **FR-16 (P0):** On a color terminal, show each agent in a colored panel, with a symbol and a color for each status. The status column has no words, and its heading is `S`. Scopes are written `Prj`, `Usr`, and `Sys` under the heading `SCOPE`, and the description starts with the item's kind, as in `SKILL: Does a thing`. Each kind other than `skill` has its own color on its name. With `--detail` there is no status column, in either output, and the status is one of the details. Use plain aligned text when piped, with `--no-color`, when `NO_COLOR` is set, when `TERM` is `dumb`, or when the output encoding isn't UTF-8. The illustrative output above is the plain form. Without `--detail`, the terminal table also shows the start of each description, cut to the space left in the terminal, and leaves the column out when too little space is left. Other long values wrap on a terminal and are never cut.
 - **FR-17 (P0):** A broken config for one agent must not stop the others. It produces a warning on stderr naming the agent and file, and items from that agent's other sources still appear.
 - **FR-18 (P0):** Exit codes: `0` for success, including partial results with warnings and empty results; `1` for a fatal runtime error; `2` for a usage error.
 - **FR-19 (P0):** Unknown fields in agent configs are ignored without error, so a new agent release doesn't break parsing.

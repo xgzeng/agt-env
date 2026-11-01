@@ -10,6 +10,7 @@ from pathlib import Path
 
 from agt_view.adapters.base import (
     Context,
+    definition_item,
     first_existing,
     list_entries,
     listed_paths,
@@ -21,11 +22,13 @@ from agt_view.adapters.base import (
     read_json,
     skill_item,
 )
+from agt_view.hooks import handler_content, handler_details, handlers
 from agt_view.mcp import remote_details, stdio_details
-from agt_view.model import AgentReport, Item, Scope, Status
-from agt_view.skills import FoundSkill, scan_skills
+from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
+from agt_view.skills import FoundSkill, read_markdown, scan_skills
 
 _UNNAMED_SKILL = "SKILL"
+_NEEDS_NAME_AND_DESCRIPTION = "needs a name and a description, which Antigravity CLI requires"
 
 
 class Antigravity:
@@ -44,7 +47,16 @@ class Antigravity:
             agent=self.id,
             installed=context.on_path("agy"),
             config_path=first_existing(
-                cli_dir, user_mcp, project_mcp, *user_skill_dirs[1:], shared_dir / "plugins"
+                cli_dir,
+                user_mcp,
+                project_mcp,
+                *user_skill_dirs[1:],
+                shared_dir / "plugins",
+                shared_dir / "agents",
+                shared_dir / "hooks.json",
+                gemini_dir / "agents",
+                workspace_dir / "agents",
+                workspace_dir / "hooks.json",
             ),
         )
 
@@ -78,6 +90,9 @@ class Antigravity:
         ):
             plugins = self._plugins(root, scope, states, state_ok, report.warnings, default)
             report.items.extend(plugins)
+            for plugin in plugins:
+                if loads_skills(plugin):
+                    report.items.extend(self._plugin_extras(plugin, report.warnings))
             report.items.extend(
                 load_once(
                     [
@@ -88,7 +103,95 @@ class Antigravity:
                     ]
                 )
             )
+
+        for root, scope, default in (
+            (cli_dir / "agents", Scope.USER, Status.ENABLED),
+            (shared_dir / "agents", Scope.USER, Status.ENABLED),
+            (gemini_dir / "agents", Scope.USER, Status.ENABLED),
+            (workspace_dir / "agents", Scope.PROJECT, project_status),
+            (context.cwd / ".agent" / "agents", Scope.PROJECT, project_status),
+        ):
+            report.items.extend(self._agents(root, scope, default, report.warnings))
+        for path, scope, default in (
+            (shared_dir / "hooks.json", Scope.USER, Status.ENABLED),
+            (workspace_dir / "hooks.json", Scope.PROJECT, project_status),
+        ):
+            report.items.extend(self._hooks(path, scope, default, report.warnings))
         return report
+
+    def _agents(self, root: Path, scope: Scope, default: Status, warnings: list[str]) -> list[Item]:
+        """An agent is `<name>.md` or `<name>/agent.md`, one level down."""
+        items = []
+        for path in _hidden_included_entries(root, warnings):
+            file = path / "agent.md" if os.path.isdir(path) else path
+            if file.suffix != ".md" or not os.path.lexists(file):
+                continue
+            found = read_markdown(file, warnings)
+            fields = found.fields or {}
+            name, description = fields.get("name"), fields.get("description")
+            items.append(
+                definition_item(
+                    self.id,
+                    found,
+                    Kind.SUBAGENT,
+                    "agent",
+                    scope,
+                    default if name and description else Status.BROKEN,
+                    name=name or path.stem,
+                    description=description or "",
+                    problem=_NEEDS_NAME_AND_DESCRIPTION,
+                )
+            )
+        return items
+
+    def _hooks(self, path: Path, scope: Scope, default: Status, warnings: list[str]) -> list[Item]:
+        """The top-level keys are hook names, each with its own events."""
+        data, ok = read_json(path, warnings)
+        items = []
+        for name, entry in data.items():
+            fields = entry if isinstance(entry, dict) else {}
+            events = {key: value for key, value in fields.items() if key != "enabled"}
+            found = list(handlers(events))
+            summaries = [handler_details(handler.entry) for handler in found]
+            valid = isinstance(entry, dict) and bool(summaries) and all(summaries)
+            status = default if ok else Status.UNKNOWN
+            if fields.get("enabled") is False:
+                status = Status.DISABLED
+            details: dict[str, object] = {"event": list(events)}
+            if valid:
+                details["command"] = [s["command"] for s in summaries if s.get("command")]
+            items.append(
+                Item(
+                    name=name,
+                    kind=Kind.HOOK,
+                    native_kind="hook",
+                    agent=self.id,
+                    scope=scope,
+                    status=status if valid else Status.BROKEN,
+                    description="; ".join(
+                        content for handler in found if (content := handler_content(handler.entry))
+                    ),
+                    source_path=path,
+                    resolved_path=Path(os.path.realpath(path)),
+                    details=details,
+                    findings=[] if valid else [Finding("invalid hook entry")],
+                )
+            )
+        return items
+
+    def _plugin_extras(self, plugin: Item, warnings: list[str]) -> list[Item]:
+        items = self._agents(plugin.source_path / "agents", plugin.scope, plugin.status, warnings)
+        items += self._hooks(
+            plugin.source_path / "hooks.json", plugin.scope, plugin.status, warnings
+        )
+        for item in items:
+            mark_bundled(
+                item,
+                plugin,
+                item.name,
+                "plugin agent" if item.kind is Kind.SUBAGENT else "plugin hook",
+            )
+        return items
 
     def _plugin_skills(self, plugin: Item, warnings: list[str]) -> list[Item]:
         manifest, _ = read_json(_plugin_manifest(plugin.source_path), [])
@@ -99,7 +202,11 @@ class Antigravity:
             warnings.extend(scan_warnings)
             for skill in found:
                 item = self._skill(skill, plugin.scope, plugin.status)
-                items.append(mark_bundled(item, plugin, f"{plugin.name}:{item.name}"))
+                items.append(
+                    mark_bundled(
+                        item, plugin, f"{plugin.name}:{item.name}", prefix=f"{plugin.name}:"
+                    )
+                )
         return items
 
     def _skill(self, skill: FoundSkill, scope: Scope, default: Status) -> Item:
@@ -151,6 +258,16 @@ class Antigravity:
                 )
             )
         return items
+
+
+def _hidden_included_entries(root: Path, warnings: list[str]) -> list[Path]:
+    try:
+        return [root / name for name in sorted(os.listdir(root))]
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    except OSError as error:
+        warnings.append(f"cannot read {root}: {error.strerror}")
+        return []
 
 
 def _plugin_manifest(plugin_dir: Path) -> Path:

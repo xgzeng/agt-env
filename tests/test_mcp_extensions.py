@@ -220,7 +220,7 @@ def test_claude_plugin_status(claude, capsys):
     assert statuses(capsys) == {
         ("plugin", "on@m", "user"): "enabled",
         ("plugin", "off@m", "user"): "disabled",
-        ("plugin", "unset@m", "user"): "unknown",
+        ("plugin", "unset@m", "user"): "disabled",
         ("plugin", "gone@m", "user"): "broken",
     }
 

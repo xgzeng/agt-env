@@ -16,7 +16,9 @@ from pathlib import Path
 from agt_view.adapters.base import (
     Context,
     config_dir,
+    definition_item,
     first_existing,
+    first_line,
     list_entries,
     load_once,
     mark_shadowed,
@@ -27,10 +29,12 @@ from agt_view.adapters.base import (
     unique_roots,
 )
 from agt_view.mcp import remote_details, stdio_details, without_credentials
-from agt_view.model import AgentReport, Item, Scope, Status
+from agt_view.model import AgentReport, Item, Kind, Scope, Status
 from agt_view.skills import (
     SKILL_FILE,
     FoundSkill,
+    find_markdown,
+    read_markdown,
     scan_markdown_skills,
     scan_skills,
     skills_at,
@@ -127,7 +131,66 @@ class Pi:
             if isinstance(values := settings.get("extensions"), list)
         )
         report.items.extend(self._servers(agent_dir, project_dir, trust, mcp_off, reliable, report))
+        report.items.extend(self._prompts(agent_dir, project_dir, layers, trust, reliable, report))
         return report
+
+    def _prompts(self, agent_dir, project_dir, layers, trust, reliable, report) -> list[Item]:
+        bases = {Scope.USER: agent_dir, Scope.PROJECT: project_dir}
+        resources = {scope: _Resources(base) for scope, base in bases.items()}
+        # Conventional directories hold direct children only. Listed ones are searched.
+        found: list[tuple[FoundSkill, Scope, int, str | None]] = [
+            (prompt, Scope.USER, _RANK_AGENT_DIR, None)
+            for prompt in find_markdown(
+                agent_dir / "prompts", report.warnings, recursive=False, include_hidden=False
+            )
+        ] + [
+            (prompt, Scope.PROJECT, _RANK_PI_SKILLS, None)
+            for prompt in find_markdown(
+                project_dir / "prompts", report.warnings, recursive=False, include_hidden=False
+            )
+        ]
+        for settings, base, scope, _ in layers:
+            listed = _Resources(base)
+            listed.add(settings.get("prompts"))
+            resources[scope].excluded_paths |= listed.excluded_paths
+            resources[scope].excluded_globs += listed.excluded_globs
+            rank = _RANK_USER_LISTED if scope is Scope.USER else _RANK_PROJECT_LISTED
+            for path in listed.paths:
+                found.extend((p, scope, rank, None) for p in _prompts_at(path, report.warnings))
+        for rank, (source, scope, prompts) in enumerate(
+            _package_resources(layers, trust, "prompts", _prompts_at, report.warnings),
+            _RANK_PACKAGES,
+        ):
+            found.extend((prompt, scope, rank, source) for prompt in prompts)
+
+        items, seen = [], set()
+        rank_of: dict[int, int] = {}
+        for prompt, scope, rank, source in found:
+            if prompt.resolved_path in seen:
+                continue
+            seen.add(prompt.resolved_path)
+            default = Status.ENABLED if scope is Scope.USER else trust
+            status = default if reliable else Status.UNKNOWN
+            if source is None and resources[scope].excludes(prompt.path, bases[scope]):
+                status = Status.DISABLED
+            fields = prompt.fields or {}
+            item = definition_item(
+                self.id,
+                prompt,
+                Kind.COMMAND,
+                "package prompt" if source else "prompt template",
+                scope,
+                status,
+                name=prompt.path.stem,
+                description=fields.get("description") or first_line(prompt.body),
+            )
+            if source:
+                item.details["plugin"] = source
+            rank_of[id(item)] = rank
+            items.append(item)
+        competing = [i for i in items if i.scope is Scope.USER or trust is Status.ENABLED]
+        mark_shadowed(sorted(competing, key=lambda i: rank_of[id(i)]))
+        return items
 
     def _skills(
         self, context, agent_dir, project_dir, layers, trust, reliable, report
@@ -179,7 +242,8 @@ class Pi:
             rank_of[id(item)] = rank
             items.append(item)
         for rank, (source, scope, skills) in enumerate(
-            _package_skills(layers, trust, report.warnings), _RANK_PACKAGES
+            _package_resources(layers, trust, "skills", _skills_in, report.warnings),
+            _RANK_PACKAGES,
         ):
             default = Status.ENABLED if scope is Scope.USER else trust
             for skill in skills:
@@ -310,10 +374,16 @@ def _listed_skills(path: Path, warnings: list[str]) -> list[FoundSkill]:
     return skills_at(path, warnings, max_depth=_SKILL_SCAN_DEPTH)
 
 
-def _package_skills(
-    layers: list, trust: Status, warnings: list[str]
+def _prompts_at(path: Path, warnings: list[str]) -> list[FoundSkill]:
+    if os.path.isfile(path):
+        return [read_markdown(path, warnings)] if path.suffix == ".md" else []
+    return find_markdown(path, warnings, include_hidden=False)
+
+
+def _package_resources(
+    layers: list, trust: Status, key: str, find, warnings: list[str]
 ) -> list[tuple[str, Scope, list[FoundSkill]]]:
-    """Return each package's skills, highest precedence first."""
+    """Return what each package has under one key, highest precedence first."""
     # A trusted project's entry replaces the personal entry for the same package.
     ordered = reversed(layers) if trust is Status.ENABLED else layers
     packages: dict[str, tuple[str, Scope, list[FoundSkill]]] = {}
@@ -324,8 +394,8 @@ def _package_skills(
             root = _package_dir(source, base) if isinstance(source, str) else None
             if root is None or (identity := os.path.realpath(root)) in packages:
                 continue
-            found = _declared_skills(root, warnings)
-            chosen = entry.get("skills") if isinstance(entry, dict) else None
+            found = _declared(root, key, find, warnings)
+            chosen = entry.get(key) if isinstance(entry, dict) else None
             if isinstance(chosen, list):
                 found = [skill for skill in found if _is_chosen(skill.path, root, chosen)]
             packages[identity] = (without_credentials(source), scope, found)
@@ -351,8 +421,8 @@ def _package_dir(source: str, base: Path) -> Path | None:
     return base / managed if os.path.isdir(base / managed) else None
 
 
-def _declared_skills(root: Path, warnings: list[str]) -> list[FoundSkill]:
-    """A `pi` key in package.json replaces the conventional `skills` directory."""
+def _declared(root: Path, key: str, find, warnings: list[str]) -> list[FoundSkill]:
+    """A `pi` key in package.json replaces the conventional directories."""
     try:
         with open(root / "package.json", encoding="utf-8") as file:
             package = json.load(file)
@@ -360,8 +430,8 @@ def _declared_skills(root: Path, warnings: list[str]) -> list[FoundSkill]:
         package = None
     manifest = package.get("pi") if isinstance(package, dict) else None
     if not isinstance(manifest, dict):
-        return _skills_in(root / "skills", warnings)
-    declared = manifest.get("skills")
+        return find(root / key, warnings)
+    declared = manifest.get(key)
     entries = (
         [entry for entry in declared if isinstance(entry, str)]
         if isinstance(declared, list)
@@ -371,7 +441,7 @@ def _declared_skills(root: Path, warnings: list[str]) -> list[FoundSkill]:
     for entry in entries:
         if not entry.startswith("!"):
             for match in sorted(glob.glob(f"{glob.escape(str(root))}/{entry}")):
-                found.extend(_skills_in(Path(os.path.normpath(match)), warnings))
+                found.extend(find(Path(os.path.normpath(match)), warnings))
     excluded = [entry[1:] for entry in entries if entry.startswith("!")]
     return [
         skill

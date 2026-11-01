@@ -10,6 +10,9 @@ class Kind(StrEnum):
     SKILL = "skill"
     MCP = "mcp"
     PLUGIN = "plugin"
+    HOOK = "hook"
+    SUBAGENT = "subagent"
+    COMMAND = "command"
 
 
 class Scope(StrEnum):
@@ -51,6 +54,9 @@ class Item:
     shared_with: list[str] = field(default_factory=list)
     details: dict[str, object] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
+    # The parts of `name` that only say where the item came from.
+    name_prefix: str = ""
+    name_suffix: str = ""
 
     @property
     def id(self) -> str:

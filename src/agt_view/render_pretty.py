@@ -18,12 +18,10 @@ from rich.text import Text
 
 from agt_view.model import AgentReport, Item, Kind, Scope, Status
 from agt_view.render_plain import (
-    COLUMNS,
     clean,
     detail_fields,
     finding_text,
     header,
-    scope_letter,
 )
 
 _STATUS_MARKS = {
@@ -35,6 +33,17 @@ _STATUS_MARKS = {
     Status.SHADOWED: ("◌", "yellow"),
 }
 _SCOPE_STYLES = {Scope.PROJECT: "magenta", Scope.USER: "cyan", Scope.SYSTEM: "blue"}
+# Skills are most of what's listed, so they keep the default color and the rest stand out.
+_KIND_COLORS = {
+    Kind.MCP: "bright_blue",
+    Kind.PLUGIN: "bright_magenta",
+    Kind.HOOK: "dark_orange",
+    Kind.SUBAGENT: "bright_cyan",
+    Kind.COMMAND: "bright_green",
+}
+_DETAIL_COLUMNS = ("SCOPE", "NAME")
+_COLUMNS = (*_DETAIL_COLUMNS, "S")  # The status column only holds a mark.
+_SCOPE_WORDS = {Scope.PROJECT: "Prj", Scope.USER: "Usr", Scope.SYSTEM: "Sys"}
 _COLUMN_GAP = 2
 _PANEL_MARGIN = 4  # A border and a space on each side.
 _MIN_NAME_WIDTH = 8
@@ -48,15 +57,41 @@ def make_console() -> Console:
     return Console(force_terminal=True, markup=False, emoji=False, highlight=False)
 
 
+def _name_cell(item: Item) -> Text:
+    """Highlight the item's own name, not the plugin or marketplace around it."""
+    if item.status is Status.SHADOWED:
+        return Text(clean(item.name), style="dim")
+    color = _KIND_COLORS.get(item.kind)
+    own_style = f"bold {color}" if color else "bold"
+    if not (item.name_prefix or item.name_suffix):
+        return Text(clean(item.name), style=own_style)
+    own = item.name.removeprefix(item.name_prefix).removesuffix(item.name_suffix)
+    return Text.assemble(
+        (clean(item.name_prefix), "dim"), (clean(own), own_style), (clean(item.name_suffix), "dim")
+    )
+
+
 def _cells(item: Item) -> tuple[Text, Text, Text]:
     mark, style = _STATUS_MARKS[item.status]
     return (
-        Text.assemble(
-            (scope_letter(item.scope), _SCOPE_STYLES[item.scope]), ("/", "dim"), clean(item.kind)
-        ),
-        Text(clean(item.name), style="bold"),
-        Text(f"{mark} {clean(item.status)}", style=style),
+        Text(_SCOPE_WORDS[item.scope], style=_SCOPE_STYLES[item.scope]),
+        _name_cell(item),
+        Text(mark, style=style),
     )
+
+
+def _kind_label(item: Item) -> str:
+    return item.kind.upper()
+
+
+def _description_text(item: Item) -> str:
+    """The kind, then the description. The kind is here so that every row says what it is."""
+    label = _kind_label(item)
+    return f"{label}: {clean(item.description)}" if item.description else label
+
+
+def _description(item: Item) -> Text:
+    return Text(_description_text(item), style="dim", no_wrap=True, overflow="ellipsis")
 
 
 def _line(cells: Iterable[Text], widths: list[int]) -> Text:
@@ -88,8 +123,17 @@ def _details(item: Item, *, home: Path, cwd: Path, indent: int) -> Padding:
     table = Table.grid(padding=(0, _COLUMN_GAP, 0, 0))
     table.add_column(no_wrap=True)
     table.add_column(overflow="fold")
-    for label, value in detail_fields(item, home=home, cwd=cwd):
-        table.add_row(Text(label, style="yellow" if label == "Finding" else "dim"), Text(value))
+    mark, style = _STATUS_MARKS[item.status]
+    fields = detail_fields(item, home=home, cwd=cwd)
+    if not item.description:
+        fields.insert(1, ("Description", ""))
+    for label, value in fields:
+        if label == "Status":
+            table.add_row(Text(label, style="dim"), Text(f"{mark} {value}", style=style))
+        elif label == "Description":
+            table.add_row(Text(label, style="dim"), Text(_description_text(item)))
+        else:
+            table.add_row(Text(label, style="yellow" if label == "Finding" else "dim"), Text(value))
     return Padding(table, (0, 0, 0, indent))
 
 
@@ -105,32 +149,38 @@ def _findings(item: Item, *, home: Path, cwd: Path, indent: int) -> Padding:
 def _items(
     items: list[Item], *, home: Path, cwd: Path, detail: bool, width: int
 ) -> list[RenderableType]:
-    rows = [_cells(item) for item in items]
-    heads = [Text(column, style="bold dim") for column in COLUMNS]
+    # With details, the status is one of them.
+    columns = _DETAIL_COLUMNS if detail else _COLUMNS
+    rows = [_cells(item)[: len(columns)] for item in items]
+    heads = [Text(column, style="bold dim") for column in columns]
     widths = [max(cell_len(row[i].plain) for row in [heads, *rows]) for i in range(len(heads))]
-    # Only the name gives up width on a narrow terminal, so the other columns stay readable.
+    # Only the name gives up width on a narrow terminal, so the other columns stay readable. A
+    # row's kind is in its description, so that always gets room for the kind.
+    kind_width = max(cell_len(_kind_label(item)) for item in items) + 1  # One for the "…".
     others = sum(widths) - widths[1] + _COLUMN_GAP * (len(widths) - 1)
+    if not detail:
+        others += kind_width + _COLUMN_GAP
     widths[1] = max(min(widths[1], width - _PANEL_MARGIN - others), _MIN_NAME_WIDTH)
 
     if not detail:
-        # The start of each description gets whatever space is left, and only if that's useful.
-        head = Text(_DESCRIPTION_COLUMN, style="bold dim")
-        cut = [
-            Text(clean(item.description), style="dim", no_wrap=True, overflow="ellipsis")
-            for item in items
-        ]
+        head = Text(_DESCRIPTION_COLUMN, style="bold dim", no_wrap=True, overflow="ellipsis")
+        cut = [_description(item) for item in items]
         room = width - _PANEL_MARGIN - sum(widths) - _COLUMN_GAP * len(widths)
-        longest = max(cell_len(text.plain) for text in cut)
-        if longest and room >= _MIN_DESCRIPTION_WIDTH:
+        if room >= kind_width:
+            longest = max(cell_len(text.plain) for text in cut)
             widths.append(min(max(longest, cell_len(head.plain)), room))
             heads.append(head)
             rows = [(*row, text) for row, text in zip(rows, cut)]
 
     separator = Rule(style="dim")
     lines: list[RenderableType] = [_rows([heads], widths, width)]
-    # Details and findings start at the NAME column.
+    # Details start at the NAME column.
     indent = widths[0] + _COLUMN_GAP
     if not detail:
+        # Findings start at the DESCRIPTION column, unless that leaves them too little room.
+        start = sum(widths[:3]) + _COLUMN_GAP * 3
+        if width - _PANEL_MARGIN - start >= _MIN_DESCRIPTION_WIDTH:
+            indent = start
         lines.append(separator)
         pending: list[tuple[Text, ...]] = []
         for row, item in zip(rows, items):

@@ -83,6 +83,20 @@ The docs are in the [Pi repository](https://github.com/earendil-works/pi), and a
 | Package skills keep their names, with no prefix | Tested |
 | Package skills lose to every other skill source, and a project's package beats a personal one. The first listed package wins, and within a package the later directory wins | Tested |
 
+## Prompt templates
+
+Pi's custom commands are prompt templates. Pi has no hook config or custom agents: extensions add such things in code, which `agt-view` doesn't run.
+
+| Rule | Evidence |
+|---|---|
+| Templates are `*.md` directly in `<agent-dir>/prompts` and `.pi/prompts`. Folders there aren't searched | Doc + Tested |
+| The `prompts` setting adds files and directories, and a directory there is searched recursively | Doc + Tested |
+| The file name is the command name, and the description falls back to the first line | Doc + Tested |
+| A project's wait for trust | Doc + Tested |
+| Exclusions and package filters work as for skills | Doc + Tested |
+| A package's are in `prompts/`, searched recursively, or `pi.prompts` instead | Doc + Tested |
+| Precedence matches skills: project sources beat user sources, listed paths beat conventional directories, and packages lose to everything, with the first package winning | Tested |
+
 ## Findings not in the documentation
 
 - **`trust.json` format:** a JSON object mapping canonical paths to `true` or `false`. The format comes from the code inside the Pi binary. A `true` or `false` value written to the file then changed what Pi loaded.

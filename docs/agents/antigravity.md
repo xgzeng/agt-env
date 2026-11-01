@@ -1,6 +1,6 @@
 # Antigravity CLI
 
-Tested version: 1.4.11. The binary is `agy`. See [evidence labels](README.md#evidence-labels).
+Tested version: 1.4.12. The binary is `agy`. See [evidence labels](README.md#evidence-labels).
 
 The Antigravity CLI, IDE, and App are separate products that share some files. This page covers the CLI.
 
@@ -59,6 +59,22 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 | A `SKILL.md` at the plugin root doesn't load | Tested |
 | A plugin skill follows the same rules as others: named by `name`, or `SKILL` without one, and it needs frontmatter | Tested |
 
+## Subagents
+
+| Rule | Evidence |
+|---|---|
+| Agents are `<name>.md` or `<name>/agent.md`, one level down, in `~/.gemini/config/agents` and `.agents/agents` | Doc + Tested |
+| `name` and `description` are required, and without them the file isn't loaded. `agt-view` reports it as `broken` | Doc + Tested |
+| A plugin's are in its `agents/`, by bare name, and only load with an enabled plugin | Doc + Tested |
+
+## Hooks
+
+| Rule | Evidence |
+|---|---|
+| Hooks are in `~/.gemini/config/hooks.json` and `.agents/hooks.json`, and a plugin's `hooks.json` | Doc, Tested for plugins |
+| Top-level keys are hook names, each with its events. `enabled: false` turns one off | Doc |
+| Hooks in `~/.gemini/antigravity-cli/settings.json` aren't loaded | Doc |
+
 ## Findings that differ from the documentation
 
 | Topic | Documentation | What `agy` does |
@@ -71,6 +87,10 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 
 ## Findings not in the documentation
 
+- **More agent locations:** `~/.gemini/antigravity-cli/agents`, `~/.gemini/agents`, and `.agent/agents` also load, and hidden names load too.
+- **Workspace agents:** `agy agents` lists them only once the workspace is trusted. `agt-view` shows them as `pending` until then.
+- **Same-named agents:** the listing shows one name once. Which one wins isn't known, so nothing is flagged.
+- **Plugin components:** `agy plugin list --json` reports `agents` and `hooks`. It doesn't report a plugin's `commands` or `workflows` folder.
 - **`~/.gemini/skills`:** `/skills` names this as the "Shared" location. No skills were placed there, so we haven't confirmed that it loads them.
 - **Skill discovery:** it's one level deep, so nested skills don't load. Standalone Markdown files don't load either. A skill without frontmatter doesn't load, with no error shown.
 - **Hidden skill directories load:** `.agents/skills/.name/SKILL.md` appears in `/skills`.
@@ -88,6 +108,7 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 
 - Precedence between same-named skills or servers isn't known, because the listings that show them need a signed-in session. `agt-view` never reports these as `shadowed`.
 - `~/.gemini/skills` loads skills like the other user directories, based only on `/skills` naming it.
+- User-level and workspace hooks can't be compared, because no listing shows them and running them needs a session. Their rows follow the docs.
 - `config.json` can disable a workspace plugin as it does a global one.
 - A disabled plugin's skills don't load. The docs imply it, and the listing that would show it needs a signed-in session.
 - Workspace plugin skills follow the same layout as global ones, and wait for the workspace trust.
@@ -95,4 +116,4 @@ The Antigravity CLI, IDE, and App are separate products that share some files. T
 ## Not covered by `agt-view`
 
 - Built-in skills, and MCP servers bundled in plugins.
-- Rules, agents, and hooks.
+- Rules, and custom commands: the docs only describe built-in ones.

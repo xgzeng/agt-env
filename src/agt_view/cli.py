@@ -13,6 +13,12 @@ from agt_view.filters import ItemFilter, select_reports
 from agt_view.model import AgentReport, Item, Kind, Scope
 from agt_view.render_plain import clean, render_report
 
+_AGENT_ALIASES = {"claude": "claude-code", "agy": "antigravity"}
+
+
+def _agent_id(value: str) -> str:
+    return _AGENT_ALIASES.get(value, value)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -30,8 +36,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "-a",
         "--agent",
         action="append",
+        type=_agent_id,
         choices=[adapter.id for adapter in ADAPTERS],
-        help="only this agent, even if hidden by default (repeatable)",
+        help="only this agent, even if hidden by default; also accepts claude and agy (repeatable)",
     )
     parser.add_argument(
         "-n", "--name", action="append", help="item name contains this text (repeatable)"
@@ -90,9 +97,28 @@ def _mark_shared(reports: list[AgentReport]) -> None:
 def _in_display_order(items: list[Item]) -> list[Item]:
     scope_order = {scope: rank for rank, scope in enumerate(Scope)}
     kind_order = {kind: rank for rank, kind in enumerate(Kind)}
-    return sorted(
+    ordered = sorted(
         items, key=lambda item: (scope_order[item.scope], kind_order[item.kind], item.name)
     )
+    # What a plugin brought goes below its row, if that row is shown.
+    plugins = {(item.scope, item.name) for item in ordered if item.kind is Kind.PLUGIN}
+    bundled: dict[tuple[Scope, object], list[Item]] = {}
+    result = []
+    for item in ordered:
+        owner = (item.scope, item.details.get("plugin"))
+        if item.kind is not Kind.PLUGIN and owner in plugins:
+            bundled.setdefault(owner, []).append(item)
+        else:
+            result.append(item)
+    return [
+        placed
+        for item in result
+        for placed in (
+            [item, *bundled.pop((item.scope, item.name), [])]
+            if item.kind is Kind.PLUGIN
+            else [item]
+        )
+    ]
 
 
 def _run(args: argparse.Namespace, context: Context, use_rich: bool) -> None:

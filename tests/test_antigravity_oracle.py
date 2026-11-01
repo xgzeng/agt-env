@@ -177,3 +177,80 @@ def test_plugin_skills_match(dirs, tmp_path, build):
         if item.kind is Kind.SKILL and item.status is Status.ENABLED
     }
     assert ours == theirs
+
+
+def agent_file(name, description="d"):
+    return f"---\nname: {name}\ndescription: {description}\n---\nBody\n"
+
+
+def write_text(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def enabled_agents(tmp_path, home, project):
+    return {
+        item.name
+        for item in scan(tmp_path, home, project)
+        if item.kind is Kind.SUBAGENT and item.status is Status.ENABLED
+    }
+
+
+def test_user_agents_match(dirs, tmp_path):
+    home, project = dirs
+    agents = home / ".gemini" / "config" / "agents"
+    write_text(agents / "file.md", agent_file("from-field"))
+    write_text(agents / "folder" / "agent.md", agent_file("from-folder"))
+    write_text(agents / "folder-without" / "other.md", agent_file("not-loaded"))
+    write_text(agents / "deep" / "deeper" / "agent.md", agent_file("not-loaded-deep"))
+    write_text(agents / ".hidden.md", agent_file("hidden"))
+    write_text(agents / ".hidden-folder" / "agent.md", agent_file("hidden-folder"))
+    write_text(agents / "no-name.md", "---\ndescription: d\n---\nBody\n")
+    write_text(agents / "no-description.md", "---\nname: no-description\n---\nBody\n")
+    write_text(agents / "plain.md", "Body\n")
+    write_text(agents / "text.txt", agent_file("text"))
+    write_text(home / ".gemini" / "antigravity-cli" / "agents" / "c.md", agent_file("cli"))
+    write_text(home / ".gemini" / "agents" / "s.md", agent_file("shared"))
+    theirs = set(agy(home, project, "agents").split())
+    assert theirs and enabled_agents(tmp_path, home, project) == theirs
+
+
+@pytest.mark.parametrize("trusted", [False, True])
+def test_workspace_agents_match(dirs, tmp_path, trusted):
+    home, project = dirs
+    write(
+        home / ".gemini" / "antigravity-cli" / "settings.json",
+        {"trustedWorkspaces": [str(project)] if trusted else []},
+    )
+    write_text(project / ".agents" / "agents" / "a.md", agent_file("a"))
+    write_text(project / ".agent" / "agents" / "b.md", agent_file("b"))
+    theirs = set(agy(home, project, "agents").split())
+    assert enabled_agents(tmp_path, home, project) == theirs
+
+
+def test_plugin_agents_and_hooks_match(dirs, tmp_path):
+    home, project = dirs
+    root = home / ".gemini" / "config" / "plugins" / "p"
+    write(root / "plugin.json", {"name": "p"})
+    write_text(root / "agents" / "one.md", agent_file("one"))
+    write_text(root / "agents" / "two" / "agent.md", agent_file("two"))
+    write_text(root / "agents" / "deep" / "x.md", agent_file("not-loaded"))
+    write(
+        root / "hooks.json",
+        {"my-hook": {"Stop": [{"hooks": [{"command": "/bin/true"}]}]}},
+    )
+    listed = json.loads(agy(home, project, "plugin", "list", "--json"))[0]
+    assert set(agy(home, project, "agents").split()) == set(listed["agents"]) == {"one", "two"}
+    items = scan(tmp_path, home, project)
+    assert enabled_agents(tmp_path, home, project) == set(listed["agents"])
+    assert {i.name for i in items if i.kind is Kind.HOOK} == set(listed["hooks"])
+
+
+def test_disabled_plugin_agents_do_not_load(dirs, tmp_path):
+    home, project = dirs
+    root = home / ".gemini" / "config" / "plugins" / "p"
+    write(root / "plugin.json", {"name": "p"})
+    write_text(root / "agents" / "one.md", agent_file("one"))
+    agy(home, project, "plugin", "disable", "p")
+    assert agy(home, project, "agents").split() == []
+    assert enabled_agents(tmp_path, home, project) == set()

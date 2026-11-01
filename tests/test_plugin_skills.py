@@ -101,7 +101,7 @@ def test_claude_manifest_paths_stay_inside_the_plugin(claude, capsys, path):
     ("enabled", "expected"),
     [
         (False, {}),
-        (None, {("U/skill", "p:a"): "unknown"}),
+        (None, {}),
     ],
 )
 def test_claude_skill_follows_its_plugin(claude, capsys, enabled, expected):
@@ -403,7 +403,7 @@ def test_pi_package_source_hides_credentials(pi, capsys):
     write_skill(checkout / "skills" / "a", named("a"))
     write_json(pi.settings, {"packages": [f"https://user:{SECRET}@github.com/acme/tools"]})
     out = run(capsys, "--detail")
-    assert re.search(r"U/skill\s+a\s+enabled", out)
+    assert re.search(r"U/skill\s+a\n\s+Status:\s+enabled", out)
     assert SECRET not in out
 
 
@@ -479,3 +479,118 @@ def test_reading_plugin_skills_runs_nothing(claude, capsys):
     run(capsys)
     assert not claude.executed
     assert os.listdir(claude.plugin) == ["skills"]
+
+
+def order(capsys, *args):
+    return [
+        (line.split()[0], line.split()[1])
+        for line in run(capsys, *args).splitlines()
+        if line.startswith("  ") and re.match(r"[PUS]/", line.split()[0])
+    ]
+
+
+def fill_claude_plugin(claude):
+    write_skill(claude.plugin / "skills" / "z", named("z"))
+    (claude.plugin / "commands").mkdir()
+    (claude.plugin / "commands" / "c.md").write_text("Body\n")
+    (claude.plugin / "agents").mkdir()
+    (claude.plugin / "agents" / "a.md").write_text("Body\n")
+    write_json(
+        claude.plugin / "hooks" / "hooks.json",
+        {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/bin/a"}]}]}},
+    )
+    write_skill(claude.dir / "skills" / "own", named("own"))
+    (claude.dir / "commands").mkdir()
+    (claude.dir / "commands" / "mine.md").write_text("Body\n")
+
+
+def test_plugin_items_are_listed_below_the_plugin(claude, capsys):
+    fill_claude_plugin(claude)
+    assert order(capsys) == [
+        ("U/skill", "own"),
+        ("U/plugin", "p@m"),
+        ("U/skill", "p:z"),
+        ("U/hook", "Stop"),
+        ("U/subagent", "p:a"),
+        ("U/command", "p:c"),
+        ("U/command", "mine"),
+    ]
+
+
+def test_each_plugin_keeps_its_own_items(claude, capsys):
+    other = claude.dir / "plugins" / "cache" / "m" / "a" / "1.0.0"
+    write_skill(other / "skills" / "s", named("s"))
+    write_skill(claude.plugin / "skills" / "s", named("s"))
+    installs = {
+        "p@m": [{"scope": "user", "installPath": str(claude.plugin)}],
+        "a@m": [{"scope": "user", "installPath": str(other)}],
+    }
+    write_json(
+        claude.dir / "plugins" / "installed_plugins.json", {"version": 2, "plugins": installs}
+    )
+    write_json(claude.dir / "settings.json", {"enabledPlugins": {"p@m": True, "a@m": True}})
+    assert order(capsys) == [
+        ("U/plugin", "a@m"),
+        ("U/skill", "a:s"),
+        ("U/plugin", "p@m"),
+        ("U/skill", "p:s"),
+    ]
+
+
+def test_filtering_out_the_plugin_leaves_items_in_their_normal_place(claude, capsys):
+    fill_claude_plugin(claude)
+    assert order(capsys, "-k", "skill") == [("U/skill", "own"), ("U/skill", "p:z")]
+
+
+def test_filtering_the_items_leaves_the_plugin_alone(claude, capsys):
+    fill_claude_plugin(claude)
+    assert order(capsys, "-k", "plugin") == [("U/plugin", "p@m")]
+
+
+def test_same_plugin_in_two_scopes_keeps_items_with_their_scope(agy, capsys):
+    write_skill(agy.plugin / "skills" / "u", named("u"))
+    workspace = agy.project / ".agents" / "plugins" / "p"
+    write_json(workspace / "plugin.json", {"name": "p"})
+    write_skill(workspace / "skills" / "w", named("w"))
+    assert order(capsys) == [
+        ("P/plugin", "p"),
+        ("P/skill", "p:w"),
+        ("U/plugin", "p"),
+        ("U/skill", "p:u"),
+    ]
+
+
+def test_pi_package_items_are_below_the_package(pi, capsys):
+    write_skill(pi.package / "skills" / "a", named("a"))
+    (pi.package / "prompts").mkdir()
+    (pi.package / "prompts" / "b.md").write_text("Body\n")
+    write_skill(pi.agent / "skills" / "own", named("own"))
+    write_json(pi.settings, {"packages": [str(pi.package)]})
+    assert order(capsys) == [
+        ("U/skill", "own"),
+        ("U/plugin", str(pi.package)),
+        ("U/skill", "a"),
+        ("U/command", "b"),
+    ]
+
+
+def test_plain_output_does_not_indent_plugin_items(claude, capsys):
+    fill_claude_plugin(claude)
+    row = next(line for line in run(capsys).splitlines() if "U/skill" in line and "p:z" in line)
+    plugin = next(line for line in run(capsys).splitlines() if "U/plugin" in line)
+    assert row.index("p:z") == plugin.index("p@m")
+
+
+@pytest.mark.parametrize("flags", [(), ("--detail",)])
+def test_rich_does_not_indent_plugin_items(claude, capsys, monkeypatch, flags):
+    from agt_view import cli
+
+    monkeypatch.setattr(cli, "_use_rich", lambda no_color_flag: True)
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("TERM", "xterm")
+    fill_claude_plugin(claude)
+    lines = re.sub(r"\x1b\[[0-9;]*m", "", run(capsys, *flags)).splitlines()
+    plugin = next(line for line in lines if "p@m" in line)
+    skill = next(line for line in lines if "p:z" in line)
+    assert skill.index("p:z") == plugin.index("p@m")
+    assert lines.index(skill) > lines.index(plugin)

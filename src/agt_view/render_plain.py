@@ -13,8 +13,13 @@ _ESCAPE_SEQUENCE = re.compile(
     r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\^_][^\x1b]*(?:\x1b\\)?|.)?"
 )
 COLUMNS = ("SCOPE/KIND", "NAME", "STATUS")
+DETAIL_COLUMNS = COLUMNS[:2]
 _DETAIL_LABELS = {
     "plugin": "Plugin",
+    "event": "Event",
+    "matcher": "Matcher",
+    "handler": "Handler",
+    "tool": "Tool",
     "transport": "Transport",
     "command": "Command",
     "url": "URL",
@@ -72,7 +77,7 @@ def header(report: AgentReport, *, home: Path, cwd: Path) -> str:
 
 def detail_fields(item: Item, *, home: Path, cwd: Path) -> list[tuple[str, str]]:
     """Everything the columns don't show. Fields with no value are left out."""
-    fields: list[tuple[str, str]] = []
+    fields: list[tuple[str, str]] = [("Status", clean(item.status))]
     if item.native_kind != item.kind:
         fields.append(("Agent's term", clean(item.native_kind)))
     if item.description:
@@ -114,26 +119,29 @@ def render_report(
         lines.append("  no items")
         return "\n".join(lines)
 
+    # With details, the status is one of them.
+    columns = DETAIL_COLUMNS if detail else COLUMNS
     rows = [
         (
             f"{scope_letter(item.scope)}/{clean(item.kind)}",
             clean(item.name),
             clean(item.status),
-        )
+        )[: len(columns)]
         for item in items
     ]
-    widths = [max(len(row[i]) for row in [COLUMNS, *rows]) for i in range(len(COLUMNS))]
+    widths = [max(len(row[i]) for row in [columns, *rows]) for i in range(len(columns))]
     margin = "" if detail else "  "
 
     def format_row(row: tuple[str, ...]) -> str:
         cells = [cell.ljust(width) for cell, width in zip(row, widths)]
         return (margin + "  ".join(cells)).rstrip()
 
-    # Details and findings start at the NAME column.
+    # Details start at the NAME column, and findings where a description column would.
     indent = " " * (len(margin) + widths[0] + 2)
+    finding_indent = " " * (len(margin) + sum(widths) + 2 * len(widths))
     table_width = sum(widths) + 2 * (len(widths) - 1)
     separator = "-" * table_width
-    lines.append(format_row(COLUMNS))
+    lines.append(format_row(columns))
     for row, item in zip(rows, items):
         if detail:
             lines.append(separator)
@@ -142,7 +150,7 @@ def render_report(
             lines.extend(f"{indent}{line}" for line in _detail_lines(item, home=home, cwd=cwd))
         else:
             lines.extend(
-                f"{indent}! {finding_text(finding, home=home, cwd=cwd)}"
+                f"{finding_indent}! {finding_text(finding, home=home, cwd=cwd)}"
                 for finding in item.findings
             )
     return "\n".join(lines)

@@ -17,26 +17,77 @@ from agt_view.adapters.base import (
     MISSING_PLUGIN,
     Context,
     config_dir,
+    definition_item,
     first_existing,
+    first_line,
     is_inside_plugin,
     listed_paths,
     load_once,
     loads_skills,
     mark_bundled,
     mark_shadowed,
+    marketplace_suffix,
     read_json,
     skill_item,
     unique_roots,
 )
+from agt_view.hooks import handlers, hook_item
 from agt_view.mcp import remote_details, stdio_details
 from agt_view.model import AgentReport, Finding, Item, Kind, Scope, Status
-from agt_view.skills import SKILL_FILE, FoundSkill, read_skill, scan_skills, skills_at
+from agt_view.skills import (
+    SKILL_FILE,
+    FoundSkill,
+    find_markdown,
+    read_markdown,
+    read_skill,
+    scan_skills,
+    skills_at,
+)
 
 _VISIBLE_OVERRIDES = {"on", "name-only", "user-invocable-only"}
-_DENY_RULE = re.compile(r"^Skill\((.+?)(?:(?: |:)\*)?\)$")
+_DENY_RULE = re.compile(r"^(Skill|Agent)\((.+?)(?:(?: |:)\*)?\)$")
 _REMOTE_TRANSPORTS = {"http", "streamable-http", "sse", "ws"}
 _PLUGIN_SCOPES = {"user": Scope.USER, "project": Scope.PROJECT, "local": Scope.PROJECT}
 _PLUGIN_MANIFEST = Path(".claude-plugin") / "plugin.json"
+_MAX_AGENT_NAME = 256
+_NEEDS_NAME_AND_DESCRIPTION = "needs a name and a description, which Claude Code requires"
+_HOOK_EVENTS = frozenset(
+    {
+        "SessionStart",
+        "Setup",
+        "UserPromptSubmit",
+        "UserPromptExpansion",
+        "PreToolUse",
+        "PermissionRequest",
+        "PermissionDenied",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PostToolBatch",
+        "Notification",
+        "MessageDisplay",
+        "SubagentStart",
+        "SubagentStop",
+        "TaskCreated",
+        "TaskCompleted",
+        "Stop",
+        "StopFailure",
+        "TeammateIdle",
+        "InstructionsLoaded",
+        "ConfigChange",
+        "CwdChanged",
+        "DirectoryAdded",
+        "FileChanged",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "PreCompact",
+        "PostCompact",
+        "PreModelSwitch",
+        "PostModelSwitch",
+        "Elicitation",
+        "ElicitationResult",
+        "SessionEnd",
+    }
+)
 
 
 class ClaudeCode:
@@ -86,27 +137,199 @@ class ClaudeCode:
         report.items = load_once(report.items)
         # Roots are in precedence order: enterprise, personal, project.
         mark_shadowed(report.items)
+        skills = list(report.items)
 
         mcp = _McpRules(settings, project_state, trusted, state_ok, managed_dir, report.warnings)
         report.items.extend(mcp.items(self.id, state, user_state_path, project_mcp_path))
         plugins = self._plugins(user_dir, context, settings, report.warnings)
         report.items.extend(plugins)
+        loaded_plugins = [plugin for plugin in plugins if loads_skills(plugin)]
         report.items.extend(
             load_once(
                 [
                     skill
-                    for plugin in plugins
-                    if loads_skills(plugin)
+                    for plugin in loaded_plugins
                     for skill in self._plugin_skills(plugin, settings, report.warnings)
                 ]
             )
         )
+
+        # A skill beats a same-named command, and otherwise the order is as for skills.
+        commands = [
+            self._command(found, root, scope, settings)
+            for scope, root in (
+                (Scope.USER, user_dir / "commands"),
+                (Scope.PROJECT, project_dir / "commands"),
+            )
+            for found in find_markdown(root, report.warnings)
+        ]
+        mark_shadowed([*skills, *commands])
+        report.items.extend(commands)
+
+        # Highest precedence first: managed, project, user. Plugin agents carry a prefix.
+        agents_by_source = [
+            [self._agent(found, scope, settings) for found in find_markdown(root, report.warnings)]
+            for scope, root in (
+                (Scope.SYSTEM, managed_dir / ".claude" / "agents"),
+                (Scope.PROJECT, project_dir / "agents"),
+                (Scope.USER, user_dir / "agents"),
+            )
+        ]
+        # Which of two same-named files in one directory loads isn't defined, so neither is flagged.
+        mark_shadowed(item for source in agents_by_source for item in _one_per_name(source))
+        report.items.extend(item for source in agents_by_source for item in source)
+
+        layers = [
+            (settings.managed, Scope.SYSTEM, settings.paths[3]),
+            (settings.user, Scope.USER, settings.paths[0]),
+            (settings.project, Scope.PROJECT, settings.paths[1]),
+            (settings.local, Scope.PROJECT, settings.paths[2]),
+        ]
+        for data, scope, path in layers:
+            report.items.extend(
+                _claude_hook(self.id, handler, scope, settings.hook_status(scope, trusted), path)
+                for handler in handlers(data.get("hooks"))
+            )
+        for plugin in loaded_plugins:
+            report.items.extend(self._plugin_extras(plugin, settings, report.warnings))
         return report
+
+    def _command(self, found: FoundSkill, root: Path, scope: Scope, settings: "_Settings") -> Item:
+        name = _command_name(found.path, root)
+        return definition_item(
+            self.id,
+            found,
+            Kind.COMMAND,
+            "command",
+            scope,
+            settings.skill_status(name),
+            name=name,
+            description=_description(found),
+        )
+
+    def _agent(self, found: FoundSkill, scope: Scope, settings: "_Settings") -> Item:
+        fields = found.fields or {}
+        name, description = fields.get("name"), fields.get("description")
+        valid = bool(name and description) and _is_agent_name(name)
+        status = Status.BROKEN if not valid else settings.agent_status(name)
+        return definition_item(
+            self.id,
+            found,
+            Kind.SUBAGENT,
+            "agent",
+            scope,
+            status,
+            name=name or found.path.stem,
+            description=description or "",
+            problem=_NEEDS_NAME_AND_DESCRIPTION,
+        )
+
+    def _plugin_extras(
+        self, plugin: Item, settings: "_Settings", warnings: list[str]
+    ) -> list[Item]:
+        """Return a loaded plugin's commands, agents, and hooks."""
+        root = plugin.source_path
+        prefix = plugin.name.partition("@")[0]
+        manifest = _quiet_json(root / _PLUGIN_MANIFEST)
+        items: list[Item] = []
+
+        declared = manifest.get("commands")
+        if isinstance(declared, dict):
+            for name, entry in declared.items():
+                source = entry.get("source") if isinstance(entry, dict) else None
+                if isinstance(source, str) and is_inside_plugin(source):
+                    found = read_markdown(root / source, warnings)
+                else:
+                    found = FoundSkill(
+                        root / _PLUGIN_MANIFEST,
+                        root / _PLUGIN_MANIFEST,
+                        Path(os.path.realpath(root / _PLUGIN_MANIFEST)),
+                    )
+                items.append(self._plugin_command(found, plugin, f"{prefix}:{name}", settings))
+        else:
+            for path in _replacing_paths(declared, "commands"):
+                base = root / path
+                if os.path.isfile(base):
+                    items.append(
+                        self._plugin_command(
+                            read_markdown(base, warnings), plugin, f"{prefix}:{base.stem}", settings
+                        )
+                    )
+                    continue
+                for found in find_markdown(base, warnings):
+                    name = f"{prefix}:{_command_name(found.path, base)}"
+                    items.append(self._plugin_command(found, plugin, name, settings))
+
+        declared = manifest.get("agents")
+        if declared is None:
+            sources = [
+                (found, root / "agents") for found in find_markdown(root / "agents", warnings)
+            ]
+        else:
+            # Tested: unlike commands, these name files, not directories.
+            sources = [
+                (read_markdown(root / path, warnings), (root / path).parent)
+                for path in _replacing_paths(declared, "agents")
+                if os.path.isfile(root / path)
+            ]
+        for found, base in sources:
+            fields = found.fields or {}
+            name = fields.get("name")
+            leaf = name if name and _is_agent_name(name) else found.path.stem
+            folders = found.path.relative_to(base).parent.parts
+            full_name = ":".join((prefix, *folders, leaf))
+            item = definition_item(
+                self.id,
+                found,
+                Kind.SUBAGENT,
+                "agent",
+                plugin.scope,
+                settings.agent_status(full_name),
+                name=full_name,
+                description=fields.get("description", ""),
+            )
+            items.append(mark_bundled(item, plugin, full_name, "plugin agent", prefix=f"{prefix}:"))
+
+        hook_files = [root / "hooks" / "hooks.json"]
+        inline: list[object] = []
+        for entry in (
+            manifest.get("hooks")
+            if isinstance(manifest.get("hooks"), list)
+            else [manifest.get("hooks")]
+        ):
+            if isinstance(entry, str) and is_inside_plugin(entry):
+                hook_files.append(root / entry)
+            elif isinstance(entry, dict):
+                inline.append(entry)
+        sources = [(_quiet_json(path), path) for path in hook_files]
+        sources += [(entry, root / _PLUGIN_MANIFEST) for entry in inline]
+        for data, path in sources:
+            for handler in handlers(data.get("hooks")):
+                status = settings.hook_status(plugin.scope, trusted=True)
+                item = _claude_hook(self.id, handler, plugin.scope, status, path, "plugin hook")
+                items.append(mark_bundled(item, plugin, item.name, "plugin hook"))
+        return items
+
+    def _plugin_command(
+        self, found: FoundSkill, plugin: Item, name: str, settings: "_Settings"
+    ) -> Item:
+        item = definition_item(
+            self.id,
+            found,
+            Kind.COMMAND,
+            "command",
+            plugin.scope,
+            settings.plugin_skill_status(name),
+            name=name,
+            description=_description(found),
+        )
+        prefix = f"{plugin.name.partition('@')[0]}:"
+        return mark_bundled(item, plugin, name, "plugin command", prefix=prefix)
 
     def _skill(self, skill: FoundSkill, scope: Scope, settings: "_Settings") -> Item:
         fields = skill.fields or {}
         name = fields.get("name") or skill.path.name
-        description = fields.get("description") or _first_line(skill.body)
+        description = fields.get("description") or first_line(skill.body)
         if skill.broken or not _is_loadable_name(name):
             status = Status.BROKEN
         else:
@@ -160,6 +383,7 @@ class ClaudeCode:
         description = manifest.get("description")
         return Item(
             name=plugin_id,
+            name_suffix=marketplace_suffix(plugin_id),
             kind=Kind.PLUGIN,
             native_kind="plugin",
             agent=self.id,
@@ -193,8 +417,8 @@ class ClaudeCode:
             full_name = name if name.startswith(f"{prefix}:") else f"{prefix}:{name}"
             status = Status.BROKEN if skill.broken else settings.plugin_skill_status(full_name)
             item = skill_item(self.id, skill, plugin.scope, status)
-            item.description = fields.get("description") or _first_line(skill.body)
-            items.append(mark_bundled(item, plugin, full_name))
+            item.description = fields.get("description") or first_line(skill.body)
+            items.append(mark_bundled(item, plugin, full_name, prefix=f"{prefix}:"))
         return items
 
 
@@ -205,6 +429,7 @@ class _Settings:
         self, *, user: Path, project: Path, local: Path, managed: Path, warnings: list[str]
     ) -> None:
         self.reliable = True
+        self.paths = (user, project, local, managed)
         self.user = self._load(user, warnings)
         self.project = self._load(project, warnings)
         self.local = self._load(local, warnings)
@@ -232,14 +457,35 @@ class _Settings:
                 rules.extend(permissions["deny"])
         return rules
 
-    def _is_denied(self, name: str) -> bool:
+    def _is_denied(self, name: str, tool: str = "Skill") -> bool:
         for rule in self._deny_rules():
-            if rule == "Skill":
+            if rule == tool:
                 return True
             match = _DENY_RULE.match(rule) if isinstance(rule, str) else None
-            if match and match[1] in (name, "*"):
+            if match and match[1] == tool and match[2] in (name, "*"):
                 return True
         return False
+
+    def agent_status(self, name: str) -> Status:
+        if not self.reliable:
+            return Status.UNKNOWN
+        return Status.DISABLED if self._is_denied(name, "Agent") else Status.ENABLED
+
+    def hook_status(self, scope: Scope, trusted: bool) -> Status:
+        if not self.reliable:
+            return Status.UNKNOWN
+        if self.managed.get("disableAllHooks") is True:
+            return Status.DISABLED
+        if scope is Scope.SYSTEM:
+            return Status.ENABLED
+        # The last layer that sets this decides, so a project can undo a user's setting.
+        disabled = False
+        for layer in (self.user, self.project, self.local):
+            if isinstance(layer.get("disableAllHooks"), bool):
+                disabled = layer["disableAllHooks"]
+        if disabled or self.managed.get("allowManagedHooksOnly") is True:
+            return Status.DISABLED
+        return Status.ENABLED if trusted or scope is Scope.USER else Status.PENDING
 
     def plugin_skill_status(self, name: str) -> Status:
         """`skillOverrides` doesn't apply to plugin skills, per the skills documentation."""
@@ -258,10 +504,14 @@ class _Settings:
         return Status.ENABLED if override in _VISIBLE_OVERRIDES else Status.UNKNOWN
 
     def plugin_status(self, plugin_id: str) -> Status:
-        value = self._merged_dict("enabledPlugins").get(plugin_id)
-        if not self.reliable or not isinstance(value, bool):
+        if not self.reliable:
             return Status.UNKNOWN
-        return Status.ENABLED if value else Status.DISABLED
+        # Tested: a plugin with no entry doesn't load, whatever `defaultEnabled` says.
+        return (
+            Status.ENABLED
+            if self._merged_dict("enabledPlugins").get(plugin_id) is True
+            else Status.DISABLED
+        )
 
 
 class _McpRules:
@@ -427,8 +677,40 @@ def _managed_dir(context: Context) -> Path:
     return context.system_root / "etc" / "claude-code"
 
 
-def _first_line(body: str) -> str:
-    return next((line.strip() for line in body.splitlines() if line.strip()), "")
+def _description(found: FoundSkill) -> str:
+    return (found.fields or {}).get("description") or first_line(found.body)
+
+
+def _command_name(path: Path, root: Path) -> str:
+    """Folders under `commands` become part of the name, joined by `:`."""
+    relative = path.relative_to(root)
+    return ":".join((*relative.parent.parts, relative.stem))
+
+
+def _is_agent_name(name: str) -> bool:
+    return not name.startswith("-") and ":" not in name and len(name) <= _MAX_AGENT_NAME
+
+
+def _one_per_name(items: list[Item]) -> list[Item]:
+    return list({item.name: item for item in reversed(items)}.values())
+
+
+def _replacing_paths(declared: object, default: str) -> list[str]:
+    """A manifest's paths replace a plugin's default directory."""
+    return (
+        [path for path in listed_paths(declared) if is_inside_plugin(path)]
+        if declared is not None
+        else [default]
+    )
+
+
+def _claude_hook(
+    agent: str, handler, scope: Scope, status: Status, path: Path, native_kind: str = "hook"
+) -> Item:
+    # An event this list doesn't know may be a newer one, or may do nothing.
+    if handler.event not in _HOOK_EVENTS and status is Status.ENABLED:
+        status = Status.UNKNOWN
+    return hook_item(agent, handler, scope, status, path, native_kind)
 
 
 def _is_loadable_name(name: str) -> bool:

@@ -268,3 +268,247 @@ def test_only_a_disabled_plugin_hides_its_skills(tmp_path):
     enabled = [p["enabled"] for p in json.loads(claude(home, project, "plugin", "list", "--json"))]
     assert enabled == [False]
     assert "p:a" not in {item.name for item in scan(tmp_path, home, project)}
+
+
+def startup_listing(home, project):
+    """Claude Code prints this before it finds that no one is signed in."""
+    output = claude(home, project, "-p", "hi", "--output-format", "stream-json", "--verbose")
+    for line in output.splitlines():
+        message = json.loads(line)
+        if message.get("subtype") == "init":
+            return message
+    raise AssertionError("no startup listing")
+
+
+@pytest.fixture(scope="module")
+def built_in(tmp_path_factory):
+    home, project = tmp_path_factory.mktemp("home"), tmp_path_factory.mktemp("project")
+    listing = startup_listing(home, project)
+    return set(listing["agents"]), set(listing["slash_commands"])
+
+
+def write_text(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def agent_file(name, description="d"):
+    return f"---\nname: {name}\ndescription: {description}\n---\nBody\n"
+
+
+def enabled(tmp_path, home, project, kind):
+    return {
+        item.name
+        for item in scan(tmp_path, home, project)
+        if item.kind is kind and item.status is Status.ENABLED
+    }
+
+
+def test_agents_match_startup_listing(tmp_path, built_in):
+    home, project = tmp_path / "home", tmp_path / "project"
+    agents = home / ".claude" / "agents"
+    project.mkdir()
+    write_text(agents / "file.md", agent_file("from-field"))
+    write_text(agents / "folder" / "nested.md", agent_file("nested"))
+    write_text(agents / ".hidden.md", agent_file("hidden"))
+    write_text(agents / "no-name.md", "---\ndescription: d\n---\nBody\n")
+    write_text(agents / "no-description.md", "---\nname: no-description\n---\nBody\n")
+    write_text(agents / "colon.md", agent_file("a:b"))
+    write_text(agents / "dash.md", agent_file("-dash"))
+    write_text(agents / "plain.md", "Body\n")
+    write_text(agents / "not-markdown.txt", agent_file("not-markdown"))
+    write_text(project / ".claude" / "agents" / "here.md", agent_file("here"))
+    theirs = set(startup_listing(home, project)["agents"]) - built_in[0]
+    assert enabled(tmp_path, home, project, Kind.SUBAGENT) == theirs
+    assert theirs
+
+
+def test_commands_match_startup_listing(tmp_path, built_in):
+    home, project = tmp_path / "home", tmp_path / "project"
+    commands = home / ".claude" / "commands"
+    project.mkdir()
+    write_text(commands / "plain.md", "Body\n")
+    write_text(commands / "group" / "deep" / "inner.md", "Body\n")
+    write_text(commands / "named.md", "---\nname: other\ndescription: d\n---\nBody\n")
+    write_text(commands / ".hidden.md", "Body\n")
+    write_text(commands / ".folder" / "inner.md", "Body\n")
+    write_text(commands / "text.txt", "Body\n")
+    write_text(commands / "off.md", "Body\n")
+    write_text(project / ".claude" / "commands" / "group" / "here.md", "Body\n")
+    write_text(home / ".claude" / "settings.json", json.dumps({"skillOverrides": {"off": "off"}}))
+    theirs = set(startup_listing(home, project)["slash_commands"]) - built_in[1]
+    assert enabled(tmp_path, home, project, Kind.COMMAND) == theirs
+    assert theirs
+
+
+@pytest.mark.parametrize(
+    ("manifest", "files", "agents", "commands"),
+    [
+        ({}, ["agents/a.md", "agents/folder/b.md"], {"p:a", "p:folder:b"}, set()),
+        ({}, ["commands/a.md", "commands/folder/b.md"], set(), {"p:a", "p:folder:b"}),
+        ({"agents": "./other/a.md"}, ["other/a.md", "agents/b.md"], {"p:a"}, set()),
+        ({"agents": ["./other"]}, ["other/a.md"], set(), set()),
+        ({"commands": "./other"}, ["other/a.md", "commands/b.md"], set(), {"p:a"}),
+        ({"commands": "./other/a.md"}, ["other/a.md", "commands/b.md"], set(), {"p:a"}),
+        (
+            {"commands": ["./other", "./commands"]},
+            ["other/a.md", "commands/b.md"],
+            set(),
+            {"p:a", "p:b"},
+        ),
+        (
+            {"commands": {"about": {"source": "./c/x.md"}, "inline": {"content": "Hi"}}},
+            ["c/x.md"],
+            set(),
+            {"p:about", "p:inline"},
+        ),
+    ],
+)
+def test_plugin_definitions_match_startup_listing(
+    tmp_path, built_in, manifest, files, agents, commands
+):
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+
+    def build(root):
+        for file in files:
+            write_text(root / file, agent_file(file.rpartition("/")[2][:-3]))
+
+    installed_through_a_marketplace(home, project, build, manifest)
+    listing = startup_listing(home, project)
+    assert set(listing["agents"]) - built_in[0] == agents
+    assert set(listing["slash_commands"]) - built_in[1] == commands
+    assert enabled(tmp_path, home, project, Kind.SUBAGENT) == agents
+    assert enabled(tmp_path, home, project, Kind.COMMAND) == commands
+
+
+def test_plugin_definitions_follow_the_plugin(tmp_path, built_in):
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+
+    def build(root):
+        write_text(root / "agents" / "a.md", agent_file("a"))
+        write_text(root / "commands" / "c.md", "Body\n")
+        write_skill(root / "skills" / "s", "description: d")
+
+    installed_through_a_marketplace(home, project, build, {})
+    claude(home, project, "plugin", "disable", "p@m")
+    listing = startup_listing(home, project)
+    assert set(listing["agents"]) == built_in[0]
+    assert set(listing["slash_commands"]) == built_in[1]
+    assert {i.name for i in scan(tmp_path, home, project) if i.kind is not Kind.PLUGIN} == set()
+
+
+def test_a_plugin_with_no_entry_does_not_load(tmp_path, built_in):
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+    installed_through_a_marketplace(
+        home,
+        project,
+        lambda root: write_skill(root / "skills" / "s", "description: d"),
+        {"defaultEnabled": True},
+    )
+    settings = home / ".claude" / "settings.json"
+    settings.write_text(json.dumps({"enabledPlugins": {}}))
+    assert set(startup_listing(home, project)["slash_commands"]) == built_in[1]
+    plugin = next(i for i in scan(tmp_path, home, project) if i.kind is Kind.PLUGIN)
+    assert plugin.status is Status.DISABLED
+
+
+def marker_hook(home, name):
+    return {"type": "command", "command": f"touch {home}/{name}.ran"}
+
+
+def session_start(*handlers):
+    return {"hooks": {"SessionStart": [{"hooks": list(handlers)}]}}
+
+
+@pytest.mark.parametrize(
+    ("user", "project_settings", "local"),
+    [
+        ({}, {}, {}),
+        ({"disableAllHooks": True}, {}, {}),
+        ({}, {"disableAllHooks": True}, {}),
+        ({"disableAllHooks": True}, {"disableAllHooks": False}, {}),
+        ({}, {"disableAllHooks": False}, {"disableAllHooks": True}),
+    ],
+)
+def test_hooks_that_run_are_the_enabled_ones(tmp_path, user, project_settings, local):
+    """Each fixture hook only touches a file in the temporary HOME."""
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+    write_text(
+        home / ".claude.json",
+        json.dumps({"projects": {str(project): {"hasTrustDialogAccepted": True}}}),
+    )
+    write_text(
+        home / ".claude" / "settings.json",
+        json.dumps({**session_start(marker_hook(home, "user")), **user}),
+    )
+    write_text(
+        project / ".claude" / "settings.json",
+        json.dumps({**session_start(marker_hook(home, "project")), **project_settings}),
+    )
+    write_text(
+        project / ".claude" / "settings.local.json",
+        json.dumps({**session_start(marker_hook(home, "local")), **local}),
+    )
+    startup_listing(home, project)
+    ran = len(list(home.glob("*.ran")))
+    ours = [i for i in scan(tmp_path, home, project) if i.kind is Kind.HOOK]
+    assert len(ours) == 3
+    assert sum(i.status is Status.ENABLED for i in ours) == ran
+
+
+def test_invalid_hooks_do_not_stop_valid_ones(tmp_path):
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+    write_text(
+        home / ".claude" / "settings.json",
+        json.dumps(
+            {
+                "hooks": {
+                    "NoSuchEvent": [{"hooks": [marker_hook(home, "event")]}],
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {"type": "command"},
+                                {"type": "nope", "command": f"touch {home}/type.ran"},
+                                marker_hook(home, "good"),
+                            ]
+                        }
+                    ],
+                }
+            }
+        ),
+    )
+    startup_listing(home, project)
+    assert [path.name for path in home.glob("*.ran")] == ["good.ran"]
+    statuses = sorted(i.status for i in scan(tmp_path, home, project) if i.kind is Kind.HOOK)
+    assert statuses == sorted([Status.ENABLED, Status.UNKNOWN, Status.BROKEN, Status.BROKEN])
+
+
+@pytest.mark.parametrize("via_key", [False, True])
+def test_plugin_hooks_run_when_listed(tmp_path, via_key):
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+
+    def build(root):
+        write_text(
+            root / "hooks" / "hooks.json", json.dumps(session_start(marker_hook(home, "default")))
+        )
+        write_text(root / "more.json", json.dumps(session_start(marker_hook(home, "key"))))
+
+    installed_through_a_marketplace(
+        home, project, build, {"hooks": "./more.json"} if via_key else {}
+    )
+    startup_listing(home, project)
+    ours = [i for i in scan(tmp_path, home, project) if i.kind is Kind.HOOK]
+    assert len(list(home.glob("*.ran"))) == len(ours) == (2 if via_key else 1)
+    assert all(i.status is Status.ENABLED and i.details["plugin"] == "p@m" for i in ours)

@@ -384,3 +384,212 @@ def test_a_disabled_plugin_skill_matches_codex(tmp_path):
     context = Context(home=home, cwd=project, env={"PATH": ""}, system_root=tmp_path / "system")
     ours = {item.name: item.status for item in Codex().scan(context).items}
     assert ours["p:a"] is Status.DISABLED
+
+
+def codex_hooks(home, cwd):
+    process = subprocess.Popen(
+        [CODEX, "app-server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        env={"PATH": os.environ["PATH"], "HOME": str(home), "CODEX_HOME": str(home / ".codex")},
+        cwd=cwd,
+    )
+
+    def send(message):
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+
+    def response(request_id):
+        for line in process.stdout:
+            message = json.loads(line)
+            if message.get("id") == request_id:
+                return message["result"]
+        raise AssertionError("codex app-server exited early")
+
+    try:
+        send(
+            {
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "t", "version": "0"},
+                    "capabilities": {"experimentalApi": True},
+                },
+            }
+        )
+        response(1)
+        send({"method": "initialized", "params": {}})
+        send({"id": 2, "method": "hooks/list", "params": {"cwds": [str(cwd)]}})
+        return response(2)["data"][0]
+    finally:
+        process.kill()
+        process.wait()
+
+
+def our_hooks(tmp_path, home, project):
+    context = Context(home=home, cwd=project, env={"PATH": ""}, system_root=tmp_path / "system")
+    return [item for item in Codex().scan(context).items if item.kind is Kind.HOOK]
+
+
+def hook_row(hook):
+    event = hook["eventName"][0].upper() + hook["eventName"][1:]
+    return f"{event}:{hook['matcher']}" if hook["matcher"] else event
+
+
+def write_hooks(path, events):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"hooks": events}))
+
+
+def codex_dirs(tmp_path):
+    home, project = tmp_path / "home", tmp_path / "project"
+    (home / ".codex").mkdir(parents=True)
+    project.mkdir()
+    return home, project
+
+
+COMMAND = {"type": "command", "command": "/bin/true"}
+HOOK_VARIANTS = [
+    {"Stop": [{"hooks": [COMMAND]}]},
+    {"PreToolUse": [{"matcher": "Bash", "hooks": [COMMAND]}]},
+    {
+        "PreToolUse": [
+            {"matcher": "Bash|Edit", "hooks": [COMMAND, {**COMMAND, "command": "/bin/b"}]}
+        ]
+    },
+    {"Stop": [{"hooks": [{**COMMAND, "timeout": 5}]}]},
+    {"Stop": [{"hooks": [{**COMMAND, "statusMessage": "working"}]}]},
+    {"Stop": [{"hooks": [{**COMMAND, "async": True}]}]},
+    {"Stop": [{"hooks": [{**COMMAND, "command": "/bin/ünï code"}]}]},
+    {"Stop": [{"hooks": [{"type": "mcp_tool", "server": "s", "tool": "t"}]}]},
+    {"SessionStart": [{"hooks": [COMMAND]}], "UserPromptSubmit": [{"hooks": [COMMAND]}]},
+]
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.parametrize("events", HOOK_VARIANTS)
+def test_hook_fingerprints_match_codex(tmp_path, events):
+    from agt_view.adapters.codex import _hook_hash
+    from agt_view.hooks import handlers
+
+    home, project = codex_dirs(tmp_path)
+    write_hooks(home / ".codex" / "hooks.json", events)
+    theirs = [hook["currentHash"] for hook in codex_hooks(home, project)["hooks"]]
+    assert theirs and [_hook_hash(handler) for handler in handlers(events)] == theirs
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+def test_hook_status_matches_codex(tmp_path):
+    home, project = codex_dirs(tmp_path)
+    write_hooks(
+        home / ".codex" / "hooks.json",
+        {
+            "Stop": [{"hooks": [COMMAND, {**COMMAND, "command": "/bin/b"}]}],
+            "PreToolUse": [{"matcher": "Bash", "hooks": [COMMAND]}],
+            "PostToolUse": [{"hooks": [COMMAND]}],
+        },
+    )
+    first = {hook["key"]: hook for hook in codex_hooks(home, project)["hooks"]}
+    keys = sorted(first)
+    state = [
+        f'[hooks.state."{keys[0]}"]\ntrusted_hash = "{first[keys[0]]["currentHash"]}"\n',
+        f'[hooks.state."{keys[1]}"]\ntrusted_hash = "sha256:00"\n',
+        f'[hooks.state."{keys[2]}"]\nenabled = false\n',
+    ]
+    (home / ".codex" / "config.toml").write_text("\n".join(state))
+
+    theirs = codex_hooks(home, project)["hooks"]
+    assert {hook["trustStatus"] for hook in theirs} == {"trusted", "modified", "untrusted"}
+    expected = sorted(
+        (
+            hook_row(hook),
+            "disabled"
+            if not hook["enabled"]
+            else "enabled"
+            if hook["trustStatus"] == "trusted"
+            else "pending",
+        )
+        for hook in theirs
+    )
+    assert sorted((i.name, i.status.value) for i in our_hooks(tmp_path, home, project)) == expected
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+def test_config_hooks_and_project_hooks_match_codex(tmp_path):
+    home, project = codex_dirs(tmp_path)
+    write_hooks(home / ".codex" / "hooks.json", {"Stop": [{"hooks": [COMMAND]}]})
+    write_hooks(project / ".codex" / "hooks.json", {"Stop": [{"hooks": [COMMAND]}]})
+    inline = (
+        '[[hooks.SessionStart]]\nmatcher = "startup"\n'
+        '[[hooks.SessionStart.hooks]]\ntype = "command"\ncommand = "/bin/inline"\n'
+    )
+    (project / ".codex" / "config.toml").write_text(inline)
+    (home / ".codex" / "config.toml").write_text(
+        f'{inline}\n[projects."{project}"]\ntrust_level = "trusted"\n'
+    )
+    theirs = sorted((hook_row(h), h["source"]) for h in codex_hooks(home, project)["hooks"])
+    ours = sorted((i.name, i.scope.value) for i in our_hooks(tmp_path, home, project))
+    assert ours == theirs and len(ours) == 4
+
+    (home / ".codex" / "config.toml").write_text(inline)
+    assert {h["source"] for h in codex_hooks(home, project)["hooks"]} == {"user"}
+    ours = {i.scope: i.status for i in our_hooks(tmp_path, home, project)}
+    assert ours[Scope.PROJECT] is Status.PENDING
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+@pytest.mark.parametrize(
+    ("hooks_key", "config"),
+    [(None, PLUGIN_ON), ("./other.json", PLUGIN_ON), (None, '[plugins."p@m"]\nenabled = false\n')],
+)
+def test_plugin_hooks_match_codex(tmp_path, hooks_key, config):
+    home, project = codex_dirs(tmp_path)
+    (home / ".codex" / "config.toml").write_text(config)
+    manifest = {"name": "p", **({"hooks": hooks_key} if hooks_key else {})}
+    root = codex_plugin(home, manifest=manifest)
+    write_hooks(root / "hooks" / "hooks.json", {"Stop": [{"hooks": [COMMAND]}]})
+    write_hooks(root / "other.json", {"PreToolUse": [{"hooks": [COMMAND]}]})
+    theirs = sorted(hook_row(hook) for hook in codex_hooks(home, project)["hooks"])
+    assert sorted(i.name for i in our_hooks(tmp_path, home, project)) == theirs
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+def test_plugin_hook_fingerprint_covers_more_than_the_hook(tmp_path):
+    """This is why a reviewed plugin hook is `unknown`, not `enabled`."""
+    home, project = codex_dirs(tmp_path)
+    (home / ".codex" / "config.toml").write_text(PLUGIN_ON)
+    root = codex_plugin(home)
+    write_hooks(root / "hooks" / "hooks.json", {"Stop": [{"hooks": [COMMAND]}]})
+    hook = codex_hooks(home, project)["hooks"][0]
+    assert hook["trustStatus"] == "untrusted" and "/" in hook["currentHash"]
+    assert [i.status for i in our_hooks(tmp_path, home, project)] == [Status.PENDING]
+
+    (root / "unrelated.txt").write_text("x")
+    assert codex_hooks(home, project)["hooks"][0]["currentHash"] != hook["currentHash"]
+
+    (home / ".codex" / "config.toml").write_text(
+        f'{PLUGIN_ON}\n[hooks.state."{hook["key"]}"]\ntrusted_hash = "{hook["currentHash"]}"\n'
+    )
+    assert [i.status for i in our_hooks(tmp_path, home, project)] == [Status.UNKNOWN]
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+def test_a_bad_hooks_file_gives_nothing_like_codex(tmp_path):
+    home, project = codex_dirs(tmp_path)
+    write_hooks(
+        home / ".codex" / "hooks.json",
+        {"Stop": [{"hooks": [{"type": "command"}, COMMAND]}]},
+    )
+    assert codex_hooks(home, project)["hooks"] == []
+    assert our_hooks(tmp_path, home, project) == []
+
+
+@pytest.mark.skipif(not CODEX, reason="AGT_VIEW_CODEX is not set")
+def test_turning_hooks_off_matches_codex(tmp_path):
+    home, project = codex_dirs(tmp_path)
+    write_hooks(home / ".codex" / "hooks.json", {"Stop": [{"hooks": [COMMAND]}]})
+    (home / ".codex" / "config.toml").write_text("[features]\nhooks = false\n")
+    assert codex_hooks(home, project)["hooks"] == []
+    assert [i.status for i in our_hooks(tmp_path, home, project)] == [Status.DISABLED]

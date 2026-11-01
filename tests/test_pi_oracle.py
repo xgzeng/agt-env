@@ -533,3 +533,112 @@ def test_package_skills_match(machine_dirs, tmp_path, build):
             file = item.source_path if standalone_file else item.source_path / "SKILL.md"
             ours.add(os.path.realpath(file))
     assert ours == theirs
+
+
+def prompt_file(description="d"):
+    return f"---\ndescription: {description}\n---\nBody\n"
+
+
+def prompts_everywhere(home, agent, project):
+    write(agent / "prompts" / "user.md", prompt_file())
+    write(agent / "prompts" / "plain.md", "First line\n")
+    write(agent / "prompts" / "folder" / "nested.md", prompt_file())
+    write(agent / "prompts" / ".hidden.md", prompt_file())
+    write(agent / "prompts" / "text.txt", prompt_file())
+    write(project / ".pi" / "prompts" / "here.md", prompt_file())
+    write(home / "extra" / "listed.md", prompt_file())
+    write(home / "extra" / "deep" / "listed-deep.md", prompt_file())
+    write(home / "one.md", prompt_file())
+    return {
+        "prompts": [str(home / "extra"), str(home / "one.md")],
+        "defaultProjectTrust": "always",
+    }
+
+
+def prompts_untrusted(home, agent, project):
+    write(project / ".pi" / "prompts" / "here.md", prompt_file())
+    return {}
+
+
+def prompt_clash(*places):
+    def build(home, agent, project):
+        settings = {"defaultProjectTrust": "always"}
+        for place in places:
+            if place == "user":
+                write(agent / "prompts" / "same.md", prompt_file())
+            elif place == "project":
+                write(project / ".pi" / "prompts" / "same.md", prompt_file())
+            elif place == "listed":
+                write(home / "listed" / "same.md", prompt_file())
+                settings["prompts"] = [str(home / "listed")]
+            elif place == "project-listed":
+                write(home / "plisted" / "same.md", prompt_file())
+                write(project / ".pi" / "settings.json", {"prompts": [str(home / "plisted")]})
+            elif place == "package":
+                root = package(home)
+                write(root / "prompts" / "same.md", prompt_file())
+                settings.setdefault("packages", []).append(str(root))
+            elif place == "second-package":
+                root = package(home, "second")
+                write(root / "prompts" / "same.md", prompt_file())
+                settings.setdefault("packages", []).append(str(root))
+        return settings
+
+    return build
+
+
+def prompt_excluded(home, agent, project):
+    write(agent / "prompts" / "kept.md", prompt_file())
+    write(agent / "prompts" / "gone.md", prompt_file())
+    return {"prompts": ["!**/gone.md"]}
+
+
+def package_prompts(pi=None, chosen=None):
+    def build(home, agent, project):
+        root = package(home, pi=pi)
+        write(root / "prompts" / "a.md", prompt_file())
+        write(root / "prompts" / "deep" / "b.md", prompt_file())
+        write(root / "res" / "c.md", prompt_file())
+        entry = {"source": str(root)}
+        if chosen is not None:
+            entry["prompts"] = chosen
+        return {"packages": [entry]}
+
+    return build
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        prompts_everywhere,
+        prompts_untrusted,
+        prompt_excluded,
+        prompt_clash("user", "project"),
+        prompt_clash("user", "listed"),
+        prompt_clash("project", "project-listed"),
+        prompt_clash("listed", "project"),
+        prompt_clash("user", "package"),
+        prompt_clash("listed", "package"),
+        prompt_clash("project", "package"),
+        prompt_clash("package", "second-package"),
+        package_prompts(),
+        package_prompts(pi={"prompts": ["./res/*.md"]}),
+        package_prompts(chosen=["prompts/a.md"]),
+        package_prompts(chosen=[]),
+    ],
+)
+def test_prompts_match(machine_dirs, tmp_path, build):
+    home, project = machine_dirs[:2]
+    agent = home / ".pi" / "agent"
+    write(agent / "settings.json", build(home, agent, project))
+    theirs = {
+        os.path.realpath(command["sourceInfo"]["path"])
+        for command in their_commands(home, project)
+        if command["source"] == "prompt"
+    }
+    ours = {
+        os.path.realpath(item.source_path)
+        for item in scan(tmp_path, home, project)
+        if item.kind is Kind.COMMAND and item.status is Status.ENABLED
+    }
+    assert ours == theirs
