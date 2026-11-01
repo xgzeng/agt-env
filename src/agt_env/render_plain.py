@@ -14,6 +14,8 @@ _ESCAPE_SEQUENCE = re.compile(
 )
 COLUMNS = ("SCOPE/KIND", "NAME", "STATUS")
 DETAIL_COLUMNS = COLUMNS[:2]
+_DESCRIPTION_COLUMN = "DESCRIPTION"
+_MIN_DESCRIPTION_WIDTH = 12
 _DETAIL_LABELS = {
     "plugin": "Plugin",
     "event": "Event",
@@ -104,6 +106,23 @@ def _detail_lines(item: Item, *, home: Path, cwd: Path) -> list[str]:
     return [f"{f'{label}:'.ljust(width)}  {value}" for label, value in fields]
 
 
+def _cut(text: str, room: int) -> str:
+    """Shorten text to fit `room` terminal cells, marking the cut. Wide characters take two."""
+    used = 0
+    for index, char in enumerate(text):
+        used += _cell_width(char)
+        if used > room:
+            kept = text[:index]
+            while kept and _cell_width(kept) > room - 1:
+                kept = kept[:-1]
+            return f"{kept}…"
+    return text
+
+
+def _cell_width(text: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in text)
+
+
 def render_report(
     report: AgentReport,
     items: list[Item],
@@ -111,7 +130,9 @@ def render_report(
     home: Path,
     cwd: Path,
     detail: bool = False,
+    width: int | None = None,
 ) -> str:
+    """Render one agent. `width` is the terminal's, if there is one: descriptions fit it."""
     name = clean(report.agent)
     state = clean(header(report, home=home, cwd=cwd))
     lines = [f"{name}  {state}"]
@@ -132,20 +153,36 @@ def render_report(
     widths = [max(len(row[i]) for row in [columns, *rows]) for i in range(len(columns))]
     margin = "" if detail else "  "
 
-    def format_row(row: tuple[str, ...]) -> str:
-        cells = [cell.ljust(width) for cell, width in zip(row, widths)]
-        return (margin + "  ".join(cells)).rstrip()
+    def format_row(row: tuple[str, ...], description: str = "") -> str:
+        cells = [cell.ljust(column) for cell, column in zip(row, widths)]
+        line = margin + "  ".join(cells)
+        return (f"{line}  {description}" if description else line).rstrip()
 
     # Details start at the NAME column, and findings where a description column would.
     indent = " " * (len(margin) + widths[0] + 2)
     finding_indent = " " * (len(margin) + sum(widths) + 2 * len(widths))
     table_width = sum(widths) + 2 * (len(widths) - 1)
     separator = "-" * table_width
-    lines.append(format_row(columns))
+
+    # The column is left out when nothing has a description, or nothing would fit.
+    room = None if width is None else width - len(finding_indent)
+    show_descriptions = (
+        not detail
+        and any(item.description for item in items)
+        and (room is None or room >= _MIN_DESCRIPTION_WIDTH)
+    )
+
+    def description_of(item: Item) -> str:
+        if not show_descriptions:
+            return ""
+        text = clean(item.description)
+        return text if room is None else _cut(text, room)
+
+    lines.append(format_row(columns, _DESCRIPTION_COLUMN if show_descriptions else ""))
     for row, item in zip(rows, items):
         if detail:
             lines.append(separator)
-        lines.append(format_row(row))
+        lines.append(format_row(row, description_of(item)))
         if detail:
             lines.extend(f"{indent}{line}" for line in _detail_lines(item, home=home, cwd=cwd))
         else:

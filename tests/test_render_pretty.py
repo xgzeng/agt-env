@@ -61,7 +61,7 @@ def test_panel_holds_the_state_and_the_table(agent, capsys):
     assert lines[1].startswith("│ ~/.claude ")
     assert lines[2].split() == ["│", "SCOPE", "NAME", "S", "DESCRIPTION", "│"]
     assert set(lines[3].strip("│ ")) == {"─"}
-    assert lines[4].split() == ["│", "Usr", "one", "●", "SKILL:", "d", "│"]
+    assert lines[4].split() == ["│", "user", "one", "●", "SKILL:", "d", "│"]
     assert lines[5].startswith("╰") and "skill 1" in lines[5]
 
 
@@ -84,7 +84,7 @@ def test_status_column_has_no_word_and_detail_has_no_column(agent, capsys):
     details = run(capsys, "--detail")[1]
     head = next(line for line in details.splitlines() if "SCOPE" in line)
     assert head.split()[1:] == ["SCOPE", "NAME", "│"]
-    row = next(line for line in details.splitlines() if "Usr" in line)
+    row = next(line for line in details.splitlines() if "user" in line)
     assert "enabled" not in row and "●" not in row
     assert re.search(r"Status\s+● enabled", details)
 
@@ -96,8 +96,8 @@ def test_detail_status_keeps_its_mark_and_color(agent, capsys):
 
 def test_status_can_still_be_searched_for(agent, capsys):
     write_skill(agent.home / ".claude" / "skills" / "one", "name: one\ndescription: d")
-    assert "Usr" in run(capsys, "enabled")[1]
-    assert "Usr" not in run(capsys, "pending")[1]
+    assert "user" in run(capsys, "enabled")[1]
+    assert "user" not in run(capsys, "pending")[1]
 
 
 def test_counts_cover_the_items_shown(agent, capsys):
@@ -294,7 +294,7 @@ def test_narrow_terminal_keeps_everything(agent, capsys, monkeypatch):
 
     # The name folds within its own column, leaving the others intact.
     head = next(line for line in lines if "SCOPE" in line)
-    first = next(number for number, line in enumerate(lines) if "Usr" in line)
+    first = next(number for number, line in enumerate(lines) if "user" in line)
     last = next(number for number, line in enumerate(lines) if "Status" in line)
     column = [line[head.index("NAME") :].rstrip("│ ") for line in lines[first:last]]
     assert "".join(part.strip() for part in column) == long_name
@@ -391,7 +391,7 @@ def test_plain_output_does_not_load_rich(real_machine):
 
 
 @pytest.mark.parametrize(
-    ("scope", "word"), [(Scope.PROJECT, "Prj"), (Scope.USER, "Usr"), (Scope.SYSTEM, "Sys")]
+    ("scope", "word"), [(Scope.PROJECT, "proj"), (Scope.USER, "user"), (Scope.SYSTEM, "sys")]
 )
 def test_scope_is_a_short_word(tmp_path, scope, word):
     item = Item("x", Kind.MCP, "mcp", "a", scope, Status.ENABLED, "", tmp_path, tmp_path)

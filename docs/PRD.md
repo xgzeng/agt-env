@@ -82,15 +82,15 @@ Agents appear in rank order (see section 6), each with a header showing its stat
 ```text
 $ agt-env
 agent-a  ~/.agent-a
-  SCOPE/KIND  NAME        STATUS
-  P/skill     repo-skill  enabled
-  U/skill     my-skill    enabled
+  SCOPE/KIND  NAME        STATUS    DESCRIPTION
+  P/skill     repo-skill  enabled   Checks the repo
+  U/skill     my-skill    enabled   Does a thing
   U/mcp       my-server   enabled
   U/plugin    my-plugin   disabled
 
 agent-b  /opt/agent-b (set by AGENT_B_HOME)
-  SCOPE/KIND  NAME      STATUS
-  U/skill     my-skill  enabled
+  SCOPE/KIND  NAME      STATUS   DESCRIPTION
+  U/skill     my-skill  enabled  Does a thing
   U/plugin    other     unknown
 
 Hidden: agent-c, agent-d. Use --all for details.
@@ -118,10 +118,10 @@ Problems are shown with the items they affect, in the same output, with no separ
 ```text
 $ agt-env -a agent-a
 agent-a  ~/.agent-a
-  SCOPE/KIND  NAME      STATUS
-  P/skill     my-skill  shadowed
+  SCOPE/KIND  NAME      STATUS    DESCRIPTION
+  P/skill     my-skill  shadowed  Does a thing
                                   ! shadowed by ~/.agent-a/skills/my-skill
-  U/skill     my-skill  enabled
+  U/skill     my-skill  enabled   Does another thing
   U/skill     old       broken
                                   ! symlink target is missing
 ```
@@ -196,7 +196,7 @@ Every item has these fields, and adapters must fill them consistently:
 
 ### 5.6 Output and errors
 
-- **FR-16 (P0):** On a color terminal, show each agent in a colored panel, with a symbol and a color for each status. The status column has no words, and its heading is `S`. Scopes are written `Prj`, `Usr`, and `Sys` under the heading `SCOPE`, and the description starts with the item's kind, as in `SKILL: Does a thing`. Each kind other than `skill` has its own color on its name. With `--detail` there is no status column, in either output, and the status is one of the details. Use plain aligned text when piped, with `--no-color`, when `NO_COLOR` is set, when `TERM` is `dumb`, or when the output encoding isn't UTF-8. The illustrative output above is the plain form. Without `--detail`, the terminal table also shows the start of each description, cut to the space left in the terminal, and leaves the column out when too little space is left. Other long values wrap on a terminal and are never cut.
+- **FR-16 (P0):** On a color terminal, show each agent in a colored panel, with a symbol and a color for each status. The status column has no words, and its heading is `S`. Scopes are written `proj`, `user`, and `sys` under the heading `SCOPE`, and the description starts with the item's kind, as in `SKILL: Does a thing`. Each kind other than `skill` has its own color on its name. With `--detail` there is no status column, in either output, and the status is one of the details. Plain output has a `DESCRIPTION` column too, whole when piped and cut to fit on a terminal, and left out when no item has a description. Use plain aligned text when piped, with `--no-color`, when `NO_COLOR` is set, when `TERM` is `dumb`, or when the output encoding isn't UTF-8. The illustrative output above is the plain form. Without `--detail`, the terminal table also shows the start of each description, cut to the space left in the terminal, and leaves the column out when too little space is left. Other long values wrap on a terminal and are never cut.
 - **FR-17 (P0):** A broken config for one agent must not stop the others. It produces a warning on stderr naming the agent and file, and items from that agent's other sources still appear.
 - **FR-18 (P0):** Exit codes: `0` for success, including partial results with warnings and empty results; `1` for a fatal runtime error; `2` for a usage error.
 - **FR-19 (P0):** Unknown fields in agent configs are ignored without error, so a new agent release doesn't break parsing.

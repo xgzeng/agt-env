@@ -43,7 +43,7 @@ _KIND_COLORS = {
 }
 _DETAIL_COLUMNS = ("SCOPE", "NAME")
 _COLUMNS = (*_DETAIL_COLUMNS, "S")  # The status column only holds a mark.
-_SCOPE_WORDS = {Scope.PROJECT: "Prj", Scope.USER: "Usr", Scope.SYSTEM: "Sys"}
+_SCOPE_WORDS = {Scope.PROJECT: "proj", Scope.USER: "user", Scope.SYSTEM: "sys"}
 _COLUMN_GAP = 2
 _PANEL_MARGIN = 4  # A border and a space on each side.
 _MIN_NAME_WIDTH = 8

@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import shutil
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -156,8 +157,17 @@ def _run(args: argparse.Namespace, context: Context, use_rich: bool) -> None:
     else:
         say = print
         if sections:
+            # Piped output has no width to fit, so scripts get every description whole.
+            width = shutil.get_terminal_size().columns if sys.stdout.isatty() else None
             rendered = [
-                render_report(report, items, home=context.home, cwd=context.cwd, detail=args.detail)
+                render_report(
+                    report,
+                    items,
+                    home=context.home,
+                    cwd=context.cwd,
+                    detail=args.detail,
+                    width=width,
+                )
                 for report, items in sections
             ]
             print("\n\n".join(rendered))

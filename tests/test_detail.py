@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from conftest import write_skill
+from conftest import run_on_terminal, write_skill
 
 from agt_env.cli import main
 
@@ -147,7 +147,8 @@ def test_agents_own_term_is_kept_for_a_renamed_kind(machine, capsys):
 def test_without_the_flag_there_are_no_details(agents, capsys):
     write_skill(agents.home / ".claude" / "skills" / "one", "name: one\ndescription: Words")
     assert main([]) == 0
-    assert "Words" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Path:" not in out and "Description:" not in out and "Status:" not in out
 
 
 def test_hidden_agent_needs_all_or_agent(machine, capsys):
@@ -191,3 +192,93 @@ def test_never_starts_a_server(agents, capsys, tmp_path):
     write_json(agents.home / ".claude.json", {"mcpServers": {"s": {"command": str(script)}}})
     assert run(capsys, "-n", "s")[0] == 0
     assert not marker.exists() and not agents.executed
+
+
+def plain_row(out, name):
+    return next(line for line in out.splitlines() if f" {name} " in line)
+
+
+def test_plain_output_has_a_description_column(agents, capsys):
+    skills = agents.home / ".claude" / "skills"
+    write_skill(skills / "one", "name: one\ndescription: Does a thing")
+    write_skill(skills / "longer", "name: longer\ndescription: Other words")
+    assert main([]) == 0
+    assert capsys.readouterr().out.splitlines()[:4] == [
+        "claude-code  ~/.claude",
+        "  SCOPE/KIND  NAME    STATUS   DESCRIPTION",
+        "  U/skill     longer  enabled  Other words",
+        "  U/skill     one     enabled  Does a thing",
+    ]
+
+
+def test_no_description_column_when_nothing_has_one(agents, capsys):
+    (agents.home / ".claude.json").write_text('{"mcpServers": {"s": {"command": "c"}}}')
+    assert main(["-k", "mcp"]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == "  SCOPE/KIND  NAME  STATUS"
+
+
+def test_a_row_with_no_description_has_no_trailing_space(agents, capsys):
+    (agents.home / ".claude.json").write_text('{"mcpServers": {"s": {"command": "c"}}}')
+    write_skill(agents.home / ".claude" / "skills" / "one", "name: one\ndescription: d")
+    assert main([]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "  U/mcp       s     enabled" in lines
+
+
+def test_piped_output_keeps_a_long_description_whole(agents, capsys, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "40")
+    text = "word " * 40
+    write_skill(agents.home / ".claude" / "skills" / "one", f"name: one\ndescription: {text}")
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert text.strip() in out and "…" not in out
+
+
+def test_detail_has_no_description_column_in_plain_output(agents, capsys):
+    write_skill(agents.home / ".claude" / "skills" / "one", "name: one\ndescription: d")
+    assert main(["--detail"]) == 0
+    assert "DESCRIPTION" not in capsys.readouterr().out
+
+
+def test_plain_description_is_one_clean_line(agents, capsys):
+    write_skill(
+        agents.home / ".claude" / "skills" / "one",
+        'name: one\ndescription: "ev\x1b[2Jil\\nnext"',
+    )
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert plain_row(out, "one").endswith("evil next")
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        ("w" * 100, "w" * 30 + "…"),
+        ("技" * 50, "技" * 15 + "…"),
+        ("short", "short"),
+    ],
+)
+def test_a_no_color_terminal_cuts_descriptions_to_fit(agents, text, shown):
+    write_skill(agents.home / ".claude" / "skills" / "one", f"name: one\ndescription: {text}")
+    out = run_on_terminal(agents, env={"NO_COLOR": "1", "COLUMNS": "60"})
+    row = plain_row(out, "one")
+    assert row.endswith(f"  {shown}")
+    assert "\x1b" not in out
+
+
+def test_a_narrow_no_color_terminal_leaves_out_descriptions(agents):
+    write_skill(agents.home / ".claude" / "skills" / "one", "name: one\ndescription: Words")
+    out = run_on_terminal(agents, env={"NO_COLOR": "1", "COLUMNS": "30"})
+    assert "DESCRIPTION" not in out and "Words" not in out
+    assert " one " in out
+
+
+def test_findings_line_up_with_plain_descriptions(agents, capsys):
+    skills = agents.home / ".claude" / "skills"
+    write_skill(skills / "one", "name: one\ndescription: Words")
+    skills.joinpath("gone").symlink_to(agents.home / "nowhere")
+    assert main([]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    column = next(line for line in lines if "SCOPE/KIND" in line).index("DESCRIPTION")
+    assert next(line for line in lines if "! symlink" in line).index("!") == column

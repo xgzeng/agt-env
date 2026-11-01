@@ -532,8 +532,8 @@ def test_no_finding_rows_without_findings(claude, capsys):
     write_skill(claude.skills / "fine", named("fine"))
     assert run(capsys).splitlines() == [
         "claude-code  ~/.claude",
-        "  SCOPE/KIND  NAME  STATUS",
-        "  U/skill     fine  enabled",
+        "  SCOPE/KIND  NAME  STATUS   DESCRIPTION",
+        "  U/skill     fine  enabled  d",
     ]
 
 
@@ -545,11 +545,11 @@ def test_findings_are_rows_below_their_item(claude, capsys):
     write_skill(claude.project_skills / "lint", named("lint", "two"))
     assert run(capsys).splitlines() == [
         "claude-code  ~/.claude",
-        "  SCOPE/KIND  NAME  STATUS",
-        "  P/skill     lint  shadowed",
+        "  SCOPE/KIND  NAME  STATUS    DESCRIPTION",
+        "  P/skill     lint  shadowed  two",
         "                              ! shadowed by ~/.claude/skills/lint",
-        "  U/skill     fine  enabled",
-        "  U/skill     lint  enabled",
+        "  U/skill     fine  enabled   d",
+        "  U/skill     lint  enabled   one",
         "  U/skill     old   broken",
         "                              ! symlink target is missing",
     ]
@@ -623,7 +623,7 @@ def test_rich_shows_the_same_findings(claude, rich_mode, capsys):
         line = next(line for line in lines if text in line)
         assert line.index(text) == column
         # Directly below its item.
-        assert lines[lines.index(line) - 1].split()[1] in ("Prj", "Usr")
+        assert lines[lines.index(line) - 1].split()[1] in ("proj", "user")
     assert "\x1b[1;31m! " in raw and "\x1b[1;33m! " in raw
     # Inside the panel: nothing printed after the bottom border.
     assert out.rstrip().endswith("╯")
@@ -667,7 +667,7 @@ def test_detail_findings_stay_at_the_name_column(claude, capsys):
 
 def test_plain_output_keeps_the_status_heading(claude, capsys):
     write_skill(claude.skills / "lint", named("lint"))
-    assert run(capsys).splitlines()[1] == "  SCOPE/KIND  NAME  STATUS"
+    assert run(capsys).splitlines()[1] == "  SCOPE/KIND  NAME  STATUS   DESCRIPTION"
 
 
 def test_rich_detail_shows_findings_under_the_item(claude, rich_mode, capsys):
