@@ -17,6 +17,7 @@ DETAIL_COLUMNS = COLUMNS[:2]
 _DESCRIPTION_COLUMN = "DESCRIPTION"
 _MIN_DESCRIPTION_WIDTH = 12
 _DETAIL_LABELS = {
+    "display_name": "Display name",
     "plugin": "Plugin",
     "event": "Event",
     "matcher": "Matcher",

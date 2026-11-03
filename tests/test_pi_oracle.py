@@ -642,3 +642,221 @@ def test_prompts_match(machine_dirs, tmp_path, build):
         if item.kind is Kind.COMMAND and item.status is Status.ENABLED
     }
     assert ours == theirs
+
+
+# Rules from the review in docs/reviews/pi.md, each compared with the real agent.
+
+
+def skill_names(items):
+    return sorted(
+        item.name for item in items if item.kind is Kind.SKILL and item.status is Status.ENABLED
+    )
+
+
+def their_skill_names(home, project):
+    return sorted(
+        command["name"].removeprefix("skill:")
+        for command in their_commands(home, project)
+        if command["name"].startswith("skill:")
+    )
+
+
+def always_trusted(agent):
+    write(agent / "settings.json", {"defaultProjectTrust": "always"})
+
+
+def test_standalone_skills_take_the_directorys_name(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    always_trusted(agent)
+    write(agent / "skills" / "helper.md", "---\ndescription: d\n---\nb")
+    write(agent / "skills" / "other.md", "---\ndescription: d\n---\nb")
+    write(agent / "skills" / "named.md", "---\nname: n1\ndescription: d\n---\nb")
+    ours = skill_names(scan(tmp_path, home, project))
+    assert ours == their_skill_names(home, project) == ["n1", "skills"]
+
+
+def test_markdown_below_an_agents_root_loads(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    always_trusted(agent)
+    root = home / ".agents" / "skills"
+    for path, name in (
+        ("root.md", "at-root"),
+        ("g/tool.md", "tool"),
+        ("g/deep/d.md", "deep"),
+        ("s/inner.md", "inner"),
+    ):
+        write(root / path, f"---\nname: {name}\ndescription: d\n---\nb")
+    write(root / "g" / "readme.md", "just text")
+    write_skill(root / "s", "name: real\ndescription: d")
+    write(project / ".agents" / "skills" / "pg" / "p.md", "---\nname: p\ndescription: d\n---\nb")
+    write(agent / "skills" / "g" / "nested.md", "---\nname: nested\ndescription: d\n---\nb")
+    ours = skill_names(scan(tmp_path, home, project))
+    assert ours == their_skill_names(home, project) == ["deep", "p", "real", "tool"]
+
+
+def test_a_skill_inside_a_skill_doesnt_load(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    write_skill(agent / "skills" / "outer", "name: outer\ndescription: d")
+    write_skill(agent / "skills" / "outer" / "inner", "name: inner\ndescription: d")
+    ours = skill_names(scan(tmp_path, home, project))
+    assert ours == their_skill_names(home, project)
+
+
+@pytest.mark.parametrize(
+    ("user", "project_settings", "loads"),
+    [
+        (["-builtin:mcp"], None, False),
+        (["!builtin:mcp"], None, False),
+        (["!builtin:*"], None, False),
+        (["!*"], None, False),
+        (["-builtin:other"], None, True),
+        (["-builtin:mcp"], ["+builtin:mcp"], True),
+        ([], ["-builtin:mcp"], False),
+    ],
+)
+def test_turning_built_in_mcp_off_matches(machine_dirs, tmp_path, user, project_settings, loads):
+    home, project, agent = machine_dirs
+    write(agent / "settings.json", {"defaultProjectTrust": "always", "extensions": user})
+    write(agent / "mcp.json", {"mcpServers": {"s": {"command": "/bin/true"}}})
+    if project_settings:
+        write(project / ".pi" / "settings.json", {"extensions": project_settings})
+    theirs = "mcp" in {command["name"] for command in their_commands(home, project)}
+    server = next(i for i in scan(tmp_path, home, project) if i.kind is Kind.MCP)
+    assert theirs is loads
+    assert (server.status is Status.ENABLED) is loads
+
+
+def test_an_untrusted_project_cant_turn_mcp_off(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    write(agent / "mcp.json", {"mcpServers": {"s": {"command": "/bin/true"}}})
+    write(project / ".pi" / "settings.json", {"extensions": ["-builtin:mcp"]})
+    assert "mcp" in {command["name"] for command in their_commands(home, project)}
+    server = next(i for i in scan(tmp_path, home, project) if i.kind is Kind.MCP)
+    assert server.status is Status.ENABLED
+
+
+def their_mcp_output(home, project):
+    return subprocess.run(
+        [PI, "mcp", "list"],
+        check=False,
+        cwd=project,
+        env=pi_env(home),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_refused_servers_match(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    write(
+        agent / "mcp.json",
+        {
+            "mcpServers": {
+                "good": {"command": "/bin/true"},
+                "sse": {"type": "sse", "url": "https://x.test/s"},
+                "ftp": {"url": "ftp://x.test"},
+                "bad name": {"command": "/bin/true"},
+                "foo-bar": {"command": "/bin/true"},
+                "foo_bar": {"command": "/bin/true"},
+                "typed": {"type": "stdio", "url": "https://x.test"},
+                "headers": {"url": "https://x.test", "headers": {"a": 1}},
+                "switch": {"command": "/bin/true", "enabled": "x"},
+            }
+        },
+    )
+    process = their_mcp_output(home, project)
+    output = process.stdout + process.stderr
+    refused = output.count("config error:")
+    items = [i for i in scan(tmp_path, home, project) if i.kind is Kind.MCP]
+    assert refused == len([i for i in items if i.status is Status.BROKEN]) == 7
+    assert {i.name for i in items if i.status is Status.ENABLED} == {"good", "foo-bar"}
+    assert all(i.findings for i in items if i.status is Status.BROKEN)
+
+
+def test_a_server_with_both_transports_is_http_like_pi(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    write(
+        agent / "mcp.json",
+        {"mcpServers": {"both": {"command": "/bin/true", "url": "https://x.test/m"}}},
+    )
+    process = their_mcp_output(home, project)
+    assert "https://x.test/m" in process.stdout
+    item = next(i for i in scan(tmp_path, home, project) if i.kind is Kind.MCP)
+    assert item.details.get("transport") == "streamable_http"
+
+
+def test_extension_entries_match(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    multi = agent / "extensions" / "multi"
+    write(multi / "package.json", {"pi": {"extensions": ["./a.ts", "./b.ts", "./missing.ts"]}})
+    write(multi / "a.ts", extension("cmd-a"))
+    write(multi / "b.ts", extension("cmd-b"))
+    write(multi / "index.ts", extension("cmd-index"))
+    write(agent / "extensions" / "nothing" / "package.json", {"pi": {"extensions": ["./no.ts"]}})
+    fallback = agent / "extensions" / "fallback"
+    write(fallback / "package.json", {"pi": {"extensions": ["./no.ts"]}})
+    write(fallback / "index.ts", extension("cmd-fallback"))
+    names = {command["name"] for command in their_commands(home, project)}
+    assert {"cmd-a", "cmd-b", "cmd-fallback"} <= names and "cmd-index" not in names
+    ours = {i.name for i in scan(tmp_path, home, project) if i.kind is Kind.PLUGIN}
+    assert ours == {"multi/a", "multi/b", "fallback"}
+
+
+def test_same_named_extensions_both_load(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    always_trusted(agent)
+    write(agent / "extensions" / "same.ts", extension("from-user"))
+    write(project / ".pi" / "extensions" / "same.ts", extension("from-project"))
+    names = {command["name"] for command in their_commands(home, project)}
+    assert {"from-user", "from-project"} <= names
+    rows = [i for i in scan(tmp_path, home, project) if i.kind is Kind.PLUGIN]
+    assert [i.status for i in rows] == [Status.ENABLED, Status.ENABLED]
+
+
+def test_package_specifiers_in_the_extensions_setting_are_ignored(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    write(agent / "settings.json", {"extensions": ["npm:left-pad", "git:github.com/a/b"]})
+    assert isinstance(their_commands(home, project), list)
+    assert not [i for i in scan(tmp_path, home, project) if i.kind is Kind.PLUGIN]
+
+
+def test_long_prompt_descriptions_are_cut_like_pis(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    write(agent / "prompts" / "long.md", "x" * 80 + "\n")
+    write(agent / "prompts" / "short.md", "short line\n")
+    theirs = {c["name"]: c.get("description") for c in their_commands(home, project)}
+    ours = {i.name: i.description for i in scan(tmp_path, home, project) if i.kind is Kind.COMMAND}
+    assert ours["long"] == theirs["long"] == "x" * 60 + "..."
+    assert ours["short"] == theirs["short"]
+
+
+@pytest.mark.parametrize(
+    ("source", "installed_at"),
+    [
+        ("git:git@github.com:acme/tools", "git/github.com/acme/tools"),
+        ("git://github.com/acme/tools", "git/github.com/acme/tools"),
+        ("ssh://git@github.com/acme/tools.git", "git/github.com/acme/tools"),
+        ("https://github.com/acme/tools@v1", "git/github.com/acme/tools"),
+        ("git:github.com/acme/tools", "git/github.com/acme/tools"),
+        ("git:gitlab.example.com/group/sub/tools", "git/gitlab.example.com/group/sub/tools"),
+        ("git:git@gitlab.example.com:group/tools.git", "git/gitlab.example.com/group/tools"),
+    ],
+)
+def test_git_source_forms_match(machine_dirs, tmp_path, source, installed_at):
+    home, project, agent = machine_dirs
+    write(agent / "settings.json", {"packages": [source]})
+    write_skill(agent / installed_at / "skills" / "from-package", "description: d")
+    write(agent / installed_at / ".git" / "HEAD", "ref: refs/heads/main\n")
+    ours = skill_names(scan(tmp_path, home, project))
+    assert ours == their_skill_names(home, project) == ["from-package"]
+
+
+def test_a_corrupt_user_settings_file_doesnt_trust_the_project(machine_dirs, tmp_path):
+    home, project, agent = machine_dirs
+    write(agent / "settings.json", "{bad")
+    write_skill(agent / "skills" / "mine", "description: d")
+    write_skill(project / ".pi" / "skills" / "theirs", "description: d")
+    assert their_skill_names(home, project) == ["mine"]
+    statuses = {i.name: i.status for i in scan(tmp_path, home, project)}
+    assert statuses["theirs"] is Status.UNKNOWN

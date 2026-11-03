@@ -26,6 +26,8 @@ packages = ["src/agt_env"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Reviews quote code as found, so their snippets aren't ours to format.
+extend-exclude = ["docs/reviews"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

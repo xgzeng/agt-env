@@ -250,13 +250,18 @@ def test_agent_deny_rules(claude, capsys):
         "Body\n",
         "---\ndescription: d\n---\n",
         "---\nname: x\n---\n",
-        agent_file("a:b"),
-        agent_file("-x"),
     ],
 )
 def test_agent_files_it_refuses_are_broken(claude, capsys, text):
     write_text(claude.dir / "agents" / "bad.md", text)
     assert "! needs a name and a description, which Claude Code requires" in run(capsys)
+
+
+@pytest.mark.parametrize("name", ["a:b", "-x", "x" * 257])
+def test_agent_names_it_refuses_say_so(claude, capsys, name):
+    write_text(claude.dir / "agents" / "bad.md", agent_file(name))
+    out = run(capsys)
+    assert "! Claude Code refuses this name" in out and "needs a name" not in out
 
 
 def test_agent_link_to_a_credential_is_not_read(claude, capsys):
@@ -425,7 +430,8 @@ def test_codex_agents(codex, capsys):
     assert re.search(r"U/subagent\s+bad\s+broken", captured.out)
     assert re.search(r"P/subagent\s+here\s+pending", captured.out)
     assert "notes" not in captured.out
-    assert "! needs a name, description, and developer_instructions" in captured.out
+    assert "! needs developer_instructions, which Codex requires" in captured.out
+    assert "! file isn't valid TOML" in captured.out
     assert "bad.toml" in captured.err
 
 
@@ -542,14 +548,20 @@ def agy(machine):
     return machine
 
 
+def test_a_bad_antigravity_hooks_file_lists_nothing(agy, capsys):
+    write_json(agy.config / "hooks.json", {"ok": {"Stop": [hook()]}, "worse": "nope"})
+    assert rows(capsys, "-k", "hook") == {}
+
+
 def test_antigravity_hooks(agy, capsys):
     write_json(
         agy.config / "hooks.json",
         {
             "lint": {"PostToolUse": [{"matcher": "x", "hooks": [hook("/bin/lint --key abc")]}]},
-            "off": {"enabled": False, "Stop": [{"hooks": [hook()]}]},
-            "bad": {"Stop": [{"hooks": [{"type": "command"}]}]},
-            "worse": "nope",
+            "off": {"enabled": False, "Stop": [hook()]},
+            "bad": {"Stop": [{"type": "command"}]},
+            "wrapped": {"Stop": [{"hooks": [hook()]}]},
+            "unknown": {"Nope": [hook()]},
         },
     )
     found = rows(capsys, "-k", "hook")
@@ -557,7 +569,8 @@ def test_antigravity_hooks(agy, capsys):
         ("U/hook", "lint"): "enabled",
         ("U/hook", "off"): "disabled",
         ("U/hook", "bad"): "broken",
-        ("U/hook", "worse"): "broken",
+        ("U/hook", "wrapped"): "broken",
+        ("U/hook", "unknown"): "broken",
     }
     out = run(capsys, "--detail", "-n", "lint")
     assert re.search(r"Event:\s+PostToolUse", out) and re.search(r"Command:\s+/bin/lint", out)
@@ -567,13 +580,13 @@ def test_antigravity_hooks(agy, capsys):
 def test_antigravity_hook_description_joins_its_handlers(agy, capsys):
     write_json(
         agy.config / "hooks.json",
-        {"h": {"Stop": [{"hooks": [hook("/bin/a"), hook("/bin/b")]}]}},
+        {"h": {"Stop": [hook("/bin/a"), hook("/bin/b")]}},
     )
     assert re.search(r"Description:\s+/bin/a; /bin/b", run(capsys, "--detail"))
 
 
 def test_antigravity_workspace_waits_for_trust(agy, capsys):
-    write_json(agy.project / ".agents" / "hooks.json", {"h": {"Stop": [{"hooks": [hook()]}]}})
+    write_json(agy.project / ".agents" / "hooks.json", {"h": {"Stop": [hook()]}})
     write_text(agy.project / ".agents" / "agents" / "a.md", agent_file("a"))
     assert rows(capsys, "-k", "hook", "-k", "subagent") == {
         ("P/hook", "h"): "pending",
@@ -581,10 +594,10 @@ def test_antigravity_workspace_waits_for_trust(agy, capsys):
     }
 
 
-def test_antigravity_same_named_agents_are_not_flagged(agy, capsys):
+def test_antigravity_same_named_agents_keep_the_first(agy, capsys):
     write_text(agy.config / "agents" / "x.md", agent_file("a"))
     write_text(agy.home / ".gemini" / "agents" / "y.md", agent_file("a"))
-    assert "shadowed" not in run(capsys)
+    assert "! shadowed by ~/.gemini/config/agents/x.md" in run(capsys)
 
 
 def test_antigravity_refused_agent_is_broken(agy, capsys):
@@ -596,7 +609,7 @@ def test_antigravity_plugin_definitions_follow_the_plugin(agy, capsys):
     root = agy.config / "plugins" / "p"
     write_json(root / "plugin.json", {"name": "p"})
     write_text(root / "agents" / "a.md", agent_file("a"))
-    write_json(root / "hooks.json", {"h": {"Stop": [{"hooks": [hook()]}]}})
+    write_json(root / "hooks.json", {"h": {"Stop": [hook()]}})
     assert rows(capsys, "-k", "hook", "-k", "subagent") == {
         ("U/subagent", "a"): "enabled",
         ("U/hook", "h"): "enabled",

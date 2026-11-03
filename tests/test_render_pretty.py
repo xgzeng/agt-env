@@ -175,7 +175,7 @@ def test_description_never_takes_space_from_the_name(agent, capsys, monkeypatch)
     monkeypatch.setenv("COLUMNS", "70")
     name = "a-name-of-thirty-characters-ok"
     text = "Long words " * 30
-    write_skill(agent.home / ".claude" / "skills" / "one", f"name: {name}\ndescription: {text}")
+    write_skill(agent.home / ".claude" / "skills" / name, f"description: {text}")
     assert name in run(capsys)[1]
 
 
@@ -284,9 +284,8 @@ def test_secrets_stay_out(agent, capsys):
 
 def test_narrow_terminal_keeps_everything(agent, capsys, monkeypatch):
     monkeypatch.setenv("COLUMNS", "50")
-    long_name = "a-very-long-name-" * 4 + "end"
     directory = "a-very-long-directory-" * 5 + "end"
-    write_skill(agent.home / ".claude" / "skills" / directory, f"name: {long_name}\ndescription: d")
+    write_skill(agent.home / ".claude" / "skills" / directory, "description: d")
     _, out = run(capsys, "--detail")
     lines = out.splitlines()
     assert all(len(line) <= 50 for line in lines)
@@ -297,7 +296,7 @@ def test_narrow_terminal_keeps_everything(agent, capsys, monkeypatch):
     first = next(number for number, line in enumerate(lines) if "user" in line)
     last = next(number for number, line in enumerate(lines) if "Status" in line)
     column = [line[head.index("NAME") :].rstrip("│ ") for line in lines[first:last]]
-    assert "".join(part.strip() for part in column) == long_name
+    assert "".join(part.strip() for part in column) == directory
     assert "● enabled" in lines[last]
 
 
@@ -496,7 +495,18 @@ def test_shadowed_plugin_name_is_dim_throughout(machine, rich_terminal, capsys):
     machine.install("codex")
     (machine.project / ".codex").mkdir()
     (machine.home / ".codex").mkdir()
-    write_json(machine.home / ".codex" / "plugins" / "cache" / "m" / "p" / "1" / "x.json", {})
+    write_json(
+        machine.home
+        / ".codex"
+        / "plugins"
+        / "cache"
+        / "m"
+        / "p"
+        / "1"
+        / ".codex-plugin"
+        / "plugin.json",
+        {"name": "p"},
+    )
     (machine.home / ".codex" / "config.toml").write_text(
         f'[plugins."p@m"]\nenabled = true\n[projects."{machine.project}"]\ntrust_level = "trusted"\n'
     )

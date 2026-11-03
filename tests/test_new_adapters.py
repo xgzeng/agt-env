@@ -573,6 +573,8 @@ def test_pi_extension_layouts(pi, capsys, tmp_path):
     (extensions / "indexed").mkdir()
     (extensions / "indexed" / "index.ts").write_text("x")
     write_json(extensions / "packaged" / "package.json", {"pi": {"extensions": ["./src/a.ts"]}})
+    (extensions / "packaged" / "src").mkdir()
+    (extensions / "packaged" / "src" / "a.ts").write_text("x")
     write_json(extensions / "plain-package" / "package.json", {"name": "not-an-extension"})
     (extensions / "empty").mkdir()
     (extensions / "gone.ts").symlink_to(tmp_path / "missing")

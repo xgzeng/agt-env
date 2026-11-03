@@ -37,7 +37,7 @@ Adapters are independent of each other. The same directory can be scanned by sev
 - **Secret values must never reach an `Item`.** MCP `details` come from `mcp.py`, which keeps env and header names only, drops arguments, and strips URL credentials and queries. Plugin and package names go through `without_credentials`, and a hook's text goes through `masked`, the one place free text reaches an `Item`. Masking recognizes common forms, not every secret, so add a form there and to the tests when one is missed. Credential stores are never opened, and `skills.py` won't follow a skill file's symlink to a non-Markdown file. `tests/test_safety.py` checks this, and that nothing is written, by auditing what a real run opens; add new credential locations there and to `docs/agents/README.md`.
 - **Inspected text is untrusted.** Everything printed goes through `render_plain.clean()`, and reaches Rich only as a `Text`, because Rich parses plain strings as markup. Files are read with a size limit, and non-regular files aren't opened.
 - **Status needs evidence.** Use `unknown` rather than guessing `enabled`, and `pending` when an item waits on user approval or trust. A `broken` item always has a finding that says why, which every scan in the tests checks. `shadowed` needs a precedence rule with evidence, recorded in the agent's doc page, and adapters call `mark_shadowed` with items in that order. A config file that can't be read gives a warning and `unknown`, and must not affect other agents.
-- **The current directory, or `--project`, is the project root.** Parent directories aren't searched, even for agents that search them.
+- **The current directory, or `--project`, is the project root.** Parent directories aren't searched for items, even for agents that search them. The one exception is finding which entry of an agent's state file describes this project, as Claude Code does by repository root.
 
 ## Changing agent rules
 
@@ -48,6 +48,8 @@ To add an agent, write the adapter, a line in `adapters/__init__.py`, a doc page
 Tests must stay isolated: the `machine` fixture in `tests/conftest.py` provides a temporary `HOME`, an empty `PATH`, and a redirected `system_root`.
 
 OpenCode's comparison tests start a background service, so they give it its own port and stop it afterwards. Don't stop a service running under a real `HOME`.
+
+Claude Code's managed-settings comparisons give the agent a private `/etc` through a Linux mount namespace, and skip where that isn't available.
 
 ## Docs
 

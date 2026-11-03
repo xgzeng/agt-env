@@ -124,7 +124,7 @@ def test_link_to_non_markdown_says_so(claude, capsys):
 
 def test_claude_refused_name_says_so(claude, capsys):
     write_skill(claude.skills / "x", "name: anthropic-skills\ndescription: d")
-    assert findings(capsys) == ["U/skill anthropic-skills: Claude Code refuses this name"]
+    assert findings(capsys) == ["U/skill x: Claude Code refuses this name"]
 
 
 def test_codex_missing_description_says_so(machine, capsys):
@@ -505,12 +505,14 @@ def test_opencode_server_override_is_reported_on_the_winner(opencode, capsys):
 # Shadowing: Antigravity
 
 
-def test_antigravity_is_never_flagged(agy, capsys):
+def test_antigravity_workspace_items_win(agy, capsys):
     write_skill(agy.home / ".gemini" / "antigravity-cli" / "skills" / "x", named("x"))
     write_skill(agy.project / ".agents" / "skills" / "x", named("x"))
     write_json(agy.home / ".gemini" / "config" / "mcp_config.json", {"mcpServers": {"s": STDIO}})
     write_json(agy.project / ".agents" / "mcp_config.json", {"mcpServers": {"s": STDIO}})
-    assert "shadowed" not in run(capsys)
+    out = run(capsys)
+    assert "! shadowed by ./.agents/skills/x" in out
+    assert "! shadowed by ./.agents/mcp_config.json" in out
 
 
 # Between agents
@@ -686,13 +688,12 @@ def test_hostile_text_in_findings_is_cleaned(claude, capsys, monkeypatch, plain)
     if not plain:
         monkeypatch.setattr(cli, "_use_rich", lambda no_color_flag: True)
         monkeypatch.setenv("COLUMNS", "200")
-    name = "ev\\x1b[2Jil[red]x[/red]\\u202e"
-    write_skill(claude.skills / "a[red]b", f'name: "{name}"\ndescription: d')
-    write_skill(claude.project_skills / "other", f'name: "{name}"\ndescription: e')
+    text = "ev\\x1b[2Jil\\u202e"
+    write_skill(claude.skills / "a[red]b", f'description: "{text}"')
+    write_skill(claude.project_skills / "a[red]b", f'description: "{text}"')
     out = COLOR_CODE.sub("", run(capsys))
     assert "\x07" not in out and "\u202e" not in out and "\x1b" not in out
-    assert "[red]x[/red]" in out and "a[red]b" not in out.split("!")[0]
-    assert "~/.claude/skills/a[red]b" in out
+    assert "~/.claude/skills/a[red]b" in out and "shadowed by" in out
 
 
 def test_findings_do_not_print_file_contents(claude, capsys):

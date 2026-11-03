@@ -6,6 +6,7 @@ compares results with the real agent.
 """
 
 import fnmatch
+import getpass
 import os
 import re
 import sys
@@ -17,7 +18,6 @@ from agt_env.adapters.base import (
     Context,
     definition_item,
     first_existing,
-    first_line,
     list_entries,
     load_once,
     mark_shadowed,
@@ -43,11 +43,26 @@ _PLUGIN_ENTRY_NAMES = ("server", "index")
 _PLUGIN_ENTRY_SUFFIXES = (".ts", ".tsx", ".js")
 _PLUGIN_ID = re.compile(r"""\bid\s*:\s*["']([^"']+)["']""")
 _MAX_PLUGIN_READ_BYTES = 64 * 1024
-_LOCAL_PLUGIN_PREFIXES = ("./", "../", "/", "~", "file://")
+_GUI_ENTRY_FILES = ("gui-experimental.cjs", "gui-experimental.js")
+_LOCAL_PLUGIN_PREFIXES = ("./", "../", "/", "file://")
 _SKILL_PLUGIN = "opencode.config.skill"
 _MCP_PLUGIN = "opencode.config.mcp"
 _COMPATIBILITY_PLUGIN = "opencode.config.compatibility"
-_SKILL_SCAN_DEPTH = 5
+_AGENT_PLUGIN = "opencode.config.agent"
+_COMMAND_PLUGIN = "opencode.config.command"
+_BUILT_INS = (_SKILL_PLUGIN, _MCP_PLUGIN, _COMPATIBILITY_PLUGIN, _AGENT_PLUGIN, _COMMAND_PLUGIN)
+_PREFERENCES_FILE = "ai.opencode.managed.plist"
+_PREFERENCE_METADATA = frozenset(
+    {
+        "PayloadDisplayName",
+        "PayloadIdentifier",
+        "PayloadType",
+        "PayloadUUID",
+        "PayloadVersion",
+        "_manualProfile",
+    }
+)
+_SKILL_SCAN_DEPTH = 6
 _SKILL_SCAN_IGNORED = frozenset({"node_modules"})
 _DECISIONS = {"allow": Status.ENABLED, "ask": Status.ENABLED, "deny": Status.DISABLED}
 
@@ -65,18 +80,33 @@ class OpenCode:
     def scan(self, context: Context) -> AgentReport:
         xdg = context.env.get("XDG_CONFIG_HOME")
         default_base = context.home / ".config"
-        global_dir = (Path(xdg).expanduser() if xdg else default_base) / "opencode"
+        xdg_dir = (Path(xdg) if xdg else default_base) / "opencode"
         moved = bool(xdg) and os.path.realpath(xdg) != os.path.realpath(default_base)
-        extra_value = context.env.get("OPENCODE_CONFIG_DIR")
-        extra_dir = Path(extra_value).expanduser() if extra_value else None
+        # This replaces the global directory, whatever the docs say.
+        moved_value = context.env.get("OPENCODE_CONFIG_DIR")
+        global_dir = Path(moved_value) if moved_value else xdg_dir
+        project_on = not _project_config_is_off(context)
         project_dir = context.cwd / ".opencode"
         project_files = [context.cwd / "opencode.json", context.cwd / "opencode.jsonc"]
+        custom = _custom_config(context)
+        managed = _managed_dir(context)
+        claude_on = not (
+            _is_flag(context, "OPENCODE_DISABLE_CLAUDE_CODE")
+            or _is_flag(context, "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS")
+        )
 
         config_path = first_existing(
-            *([extra_dir] if extra_dir else []), global_dir, *project_files, project_dir
+            *([global_dir] if moved_value else []),
+            *([custom] if custom else []),
+            global_dir,
+            *([*project_files, project_dir] if project_on else []),
+            context.home / ".agents" / "skills",
+            *([context.cwd / ".agents" / "skills"] if project_on else []),
         )
         override_var = None
-        if config_path is not None and config_path == extra_dir:
+        if config_path is not None and config_path == custom:
+            override_var = "OPENCODE_CONFIG"
+        elif moved_value and config_path == global_dir:
             override_var = "OPENCODE_CONFIG_DIR"
         elif moved and config_path == global_dir:
             override_var = "XDG_CONFIG_HOME"
@@ -87,90 +117,93 @@ class OpenCode:
             override_var=override_var,
         )
 
-        layers, reliable = self._layers(context, global_dir, extra_dir, project_dir, report)
+        layers, reliable = self._layers(
+            context, global_dir, custom, project_dir, managed, project_on, report
+        )
         status = _SkillPolicy(layers, reliable)
-        user_dirs = [global_dir, *([extra_dir] if extra_dir else [])]
 
-        roots = [
-            *[(Scope.USER, directory / "skills") for directory in user_dirs],
-            *[(Scope.USER, directory / "skill") for directory in user_dirs],
-            (Scope.PROJECT, project_dir / "skills"),
-            (Scope.PROJECT, project_dir / "skill"),
+        # Highest precedence first, so a skill linked from two sources keeps the higher one's row.
+        native_roots = [
+            *[
+                (layer.scope, path)
+                for layer in reversed(layers)
+                for path in reversed(_configured_skill_paths(layer, context))
+            ],
+            (Scope.SYSTEM, managed / "skills"),
+            (Scope.SYSTEM, managed / "skill"),
+            *(
+                [(Scope.PROJECT, project_dir / "skills"), (Scope.PROJECT, project_dir / "skill")]
+                if project_on
+                else []
+            ),
+            (Scope.USER, global_dir / "skills"),
+            (Scope.USER, global_dir / "skill"),
         ]
         compatibility_roots = [
+            *([(Scope.PROJECT, context.cwd / ".agents" / "skills")] if project_on else []),
             (Scope.USER, context.home / ".agents" / "skills"),
-            (Scope.PROJECT, context.cwd / ".agents" / "skills"),
+            *(
+                [(Scope.PROJECT, context.cwd / ".claude" / "skills")]
+                if claude_on and project_on
+                else []
+            ),
+            *([(Scope.USER, context.home / ".claude" / "skills")] if claude_on else []),
         ]
-        if not _is_set(
-            context, "OPENCODE_DISABLE_CLAUDE_CODE", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"
-        ):
-            compatibility_roots += [
-                (Scope.USER, context.home / ".claude" / "skills"),
-                (Scope.PROJECT, context.cwd / ".claude" / "skills"),
-            ]
-        roots += compatibility_roots
-        for layer in layers:
-            roots += [(layer.scope, path) for path in _configured_skill_paths(layer, context.cwd)]
         compatibility_skills: list[Item] = []
+        skills: list[Item] = []
+        ranked_roots = unique_roots([*native_roots, *compatibility_roots])
         skills_by_root: dict[Path, list[Item]] = {}
-        for scope, root in unique_roots(roots):
+        for scope, root in ranked_roots:
             found = _skills_in_source(root, report.warnings)
             items = [skill_item(self.id, skill, scope, status.of(skill)) for skill in found]
             skills_by_root[root] = items
-            report.items.extend(items)
+            skills.extend(items)
             if (scope, root) in compatibility_roots:
                 compatibility_skills.extend(items)
-        report.items = load_once(report.items)
+        report.items = load_once(skills)
 
         report.items.extend(self._servers(layers, reliable))
         plugins = _PluginList(self.id, reliable)
         for scope, root in unique_roots(
             [
-                *[(Scope.USER, directory / "plugins") for directory in user_dirs],
-                *[(Scope.USER, directory / "plugin") for directory in user_dirs],
-                (Scope.PROJECT, project_dir / "plugins"),
-                (Scope.PROJECT, project_dir / "plugin"),
+                (Scope.USER, global_dir / "plugins"),
+                (Scope.USER, global_dir / "plugin"),
+                *(
+                    [
+                        (Scope.PROJECT, project_dir / "plugins"),
+                        (Scope.PROJECT, project_dir / "plugin"),
+                    ]
+                    if project_on
+                    else []
+                ),
+                (Scope.SYSTEM, managed / "plugins"),
+                (Scope.SYSTEM, managed / "plugin"),
             ]
         ):
             plugins.discover(root, scope, report.warnings)
         for layer in layers:
             plugins.apply_config(layer)
         report.items.extend(plugins.items())
-        _apply_built_in_removals(report.items, compatibility_skills, plugins)
-
-        loaded = {id(item) for item in report.items}
-        ranked: list[Item] = []
-        for root in [
-            *[
-                path
-                for layer in reversed(layers)
-                for path in reversed(_configured_skill_paths(layer, context.cwd))
-            ],
-            project_dir / "skills",
-            project_dir / "skill",
-            *[directory / "skills" for directory in reversed(user_dirs)],
-            *[directory / "skill" for directory in reversed(user_dirs)],
-            context.cwd / ".agents" / "skills",
-            context.home / ".agents" / "skills",
-            context.cwd / ".claude" / "skills",
-            context.home / ".claude" / "skills",
-        ]:
-            ranked.extend(
-                _in_source_precedence(
-                    [item for item in skills_by_root.pop(root, []) if id(item) in loaded]
-                )
-            )
-        mark_shadowed(ranked, key=_skill_id)
 
         # A directory's Markdown files apply after the config files in that directory.
         places = [
             (global_dir, Scope.USER),
             (context.cwd, None),
-            (project_dir, Scope.PROJECT),
-            *([(extra_dir, Scope.USER)] if extra_dir else []),
+            *([(project_dir, Scope.PROJECT)] if project_on else []),
+            (managed, Scope.SYSTEM),
         ]
         for kind in (Kind.SUBAGENT, Kind.COMMAND):
             report.items.extend(self._definitions(kind, places, layers, reliable, report))
+        _apply_built_in_removals(report.items, compatibility_skills, plugins)
+
+        # What a removed built-in provided no longer takes a skill's ID.
+        loaded = {id(item) for item in report.items}
+        ranked: list[Item] = []
+        for _, root in ranked_roots:
+            ranked.extend(
+                _in_source_precedence([item for item in skills_by_root[root] if id(item) in loaded])
+            )
+        mark_shadowed(ranked, key=_skill_id)
         return report
 
     def _definitions(
@@ -196,8 +229,16 @@ class OpenCode:
         for directory, scope in places:
             if scope is None:
                 continue
-            for root in (directory / plural, directory / singular):
-                for found in find_markdown(root, report.warnings):
+            # Files apply in sorted order, so the plural directory beats the singular one. Modes
+            # come last, and only directly in their directory.
+            sources = [(directory / singular, singular, True), (directory / plural, singular, True)]
+            if kind is Kind.SUBAGENT:
+                sources += [
+                    (directory / "mode", "mode", False),
+                    (directory / "modes", "mode", False),
+                ]
+            for root, native_kind, recursive in sources:
+                for found in find_markdown(root, report.warnings, recursive=recursive):
                     name = found.path.relative_to(root).with_suffix("").as_posix()
                     fields = found.fields or {}
                     off = kind is Kind.SUBAGENT and _is_turned_off(fields)
@@ -205,12 +246,11 @@ class OpenCode:
                         self.id,
                         found,
                         kind,
-                        singular,
+                        native_kind,
                         scope,
                         Status.DISABLED if off else Status.ENABLED,
                         name=name,
-                        description=fields.get("description")
-                        or (first_line(found.body) if kind is Kind.COMMAND else ""),
+                        description=fields.get("description") or "",
                     )
                     ordered.append((positions[directory] + 0.5, name, item))
         ordered.sort(key=lambda entry: entry[0])
@@ -235,8 +275,10 @@ class OpenCode:
         self,
         context: Context,
         global_dir: Path,
-        extra_dir: Path | None,
+        custom: Path | None,
         project_dir: Path,
+        managed: Path,
+        project_on: bool,
         report: AgentReport,
     ) -> tuple[list[_Layer], bool]:
         """Read config files, lowest precedence first, and say if all could be read."""
@@ -244,22 +286,15 @@ class OpenCode:
             (global_dir / "opencode.json", Scope.USER),
             (global_dir / "opencode.jsonc", Scope.USER),
         ]
-        custom = context.env.get("OPENCODE_CONFIG")
         if custom:
-            candidates.append((Path(custom).expanduser(), Scope.USER))
-        if not _is_set(context, "OPENCODE_DISABLE_PROJECT_CONFIG"):
+            candidates.append((custom, Scope.USER))
+        if project_on:
             candidates += [
                 (context.cwd / "opencode.json", Scope.PROJECT),
                 (context.cwd / "opencode.jsonc", Scope.PROJECT),
                 (project_dir / "opencode.json", Scope.PROJECT),
                 (project_dir / "opencode.jsonc", Scope.PROJECT),
             ]
-        if extra_dir:
-            candidates += [
-                (extra_dir / "opencode.json", Scope.USER),
-                (extra_dir / "opencode.jsonc", Scope.USER),
-            ]
-        managed = _managed_dir(context)
         candidates += [
             (managed / "opencode.json", Scope.SYSTEM),
             (managed / "opencode.jsonc", Scope.SYSTEM),
@@ -277,6 +312,9 @@ class OpenCode:
             reliable = reliable and ok
             if data:
                 layers.append(_Layer(path, scope, data))
+        preferences = _managed_preferences(context, report.warnings)
+        if preferences:
+            layers.append(preferences)
         return layers, reliable
 
     def _servers(self, layers: list[_Layer], reliable: bool) -> list[Item]:
@@ -291,7 +329,7 @@ class OpenCode:
                     winners[name] = (entry, layer)
         items = []
         for name, (entry, layer) in winners.items():
-            status = _server_status(entry, layer.data, reliable)
+            status = _server_status(entry, _is_native_server(layer.data, name), reliable)
             item = mcp_item(self.id, name, _server_details(entry), layer.scope, status, layer.path)
             if name in replaced:
                 item.findings.append(Finding("overrides the entry in", replaced[name]))
@@ -303,6 +341,7 @@ class OpenCode:
 class _Plugin:
     item: Item
     plugin_id: str | None
+    status: Status  # Before any removal.
 
 
 class _PluginList:
@@ -312,7 +351,7 @@ class _PluginList:
         self.agent = agent
         self.reliable = reliable
         self.plugins: dict[str, _Plugin] = {}
-        self.removals: list[str] = []
+        self.built_ins = dict.fromkeys(_BUILT_INS, True)
 
     def discover(self, root: Path, scope: Scope, warnings: list[str]) -> None:
         for path in list_entries(root, warnings):
@@ -332,6 +371,8 @@ class _PluginList:
                     continue
                 if source.startswith("-"):
                     self._remove(source[1:])
+                elif self._select(source):
+                    continue
                 elif source.startswith(_LOCAL_PLUGIN_PREFIXES):
                     path = _local_plugin_path(source, layer.path.parent)
                     # A configured local path must be a plugin directory; a file is skipped.
@@ -354,10 +395,12 @@ class _PluginList:
         item = plugin_item(self.agent, name, native_kind, scope, status, path)
         is_package = key is not None
         plugin_id = None if is_package else _plugin_id(path)
-        self.plugins[key or os.path.realpath(path)] = _Plugin(item, plugin_id)
+        self.plugins[key or os.path.realpath(path)] = _Plugin(item, plugin_id, status)
 
     def _remove(self, pattern: str) -> None:
-        self.removals.append(pattern)
+        for built_in in self.built_ins:
+            if _id_matches(built_in, pattern):
+                self.built_ins[built_in] = False
         for plugin in self.plugins.values():
             if plugin.item.status is Status.BROKEN:
                 continue
@@ -366,8 +409,21 @@ class _PluginList:
             elif plugin.plugin_id is None:
                 plugin.item.status = Status.UNKNOWN
 
+    def _select(self, pattern: str) -> bool:
+        """Turn back on what a pattern matches. Say whether it selects plugins, not a package."""
+        selects = pattern == "*" or pattern.endswith(".*") or pattern.startswith("opencode.")
+        for built_in in self.built_ins:
+            if _id_matches(built_in, pattern):
+                self.built_ins[built_in] = True
+                selects = True
+        for plugin in self.plugins.values():
+            if pattern == "*" or (plugin.plugin_id and _id_matches(plugin.plugin_id, pattern)):
+                plugin.item.status = plugin.status
+                selects = True
+        return selects
+
     def removed(self, built_in_id: str) -> bool:
-        return any(_id_matches(built_in_id, pattern) for pattern in self.removals)
+        return not self.built_ins[built_in_id]
 
     def items(self) -> list[Item]:
         items = [plugin.item for plugin in self.plugins.values()]
@@ -381,16 +437,23 @@ class _PluginList:
 def _apply_built_in_removals(
     items: list[Item], compatibility_skills: list[Item], plugins: _PluginList
 ) -> None:
-    skills_off = plugins.removed(_SKILL_PLUGIN)
-    servers_off = plugins.removed(_MCP_PLUGIN)
+    """Each kind of item on disk comes from a built-in plugin, which config can remove."""
+    compatibility = {id(item) for item in compatibility_skills}
     for item in items:
-        off = (item.kind is Kind.SKILL and skills_off) or (item.kind is Kind.MCP and servers_off)
-        if off and item.status is not Status.BROKEN:
+        if item.status is Status.BROKEN:
+            continue
+        if item.kind is Kind.SKILL:
+            owner = _COMPATIBILITY_PLUGIN if id(item) in compatibility else _SKILL_PLUGIN
+        elif item.kind is Kind.MCP:
+            owner = _MCP_PLUGIN
+        elif item.kind is Kind.SUBAGENT:
+            owner = _AGENT_PLUGIN
+        elif item.kind is Kind.COMMAND:
+            owner = _COMMAND_PLUGIN
+        else:
+            continue
+        if plugins.removed(owner):
             item.status = Status.DISABLED
-    if plugins.removed(_COMPATIBILITY_PLUGIN):
-        for item in compatibility_skills:
-            if item.status is not Status.BROKEN:
-                item.status = Status.DISABLED
 
 
 def _id_matches(plugin_id: str, pattern: str) -> bool:
@@ -413,7 +476,7 @@ def _plugin_source(entry: object) -> str | None:
 def _local_plugin_path(source: str, base: Path) -> Path:
     if source.startswith("file://"):
         return Path(unquote(urlsplit(source).path))
-    return base / Path(source).expanduser()
+    return base / source
 
 
 def _plugin_entry_file(directory: Path) -> Path | None:
@@ -427,6 +490,8 @@ def _plugin_entry_file(directory: Path) -> Path | None:
 def _is_plugin_directory(directory: Path) -> bool:
     if _plugin_entry_file(directory) is not None:
         return True
+    if any(os.path.isfile(directory / name) for name in _GUI_ENTRY_FILES):
+        return True
     manifest, _ = read_json(directory / "package.json", [])
     return bool(manifest.get("name")) and "exports" in manifest
 
@@ -434,6 +499,11 @@ def _is_plugin_directory(directory: Path) -> bool:
 def _plugin_id(path: Path) -> str | None:
     """Find the `id` in a plugin's source text. The code is never run."""
     source = _plugin_entry_file(path) if os.path.isdir(path) else path
+    if source is None and any(os.path.isfile(path / name) for name in _GUI_ENTRY_FILES):
+        # Without a server part, a plugin's ID is its package name or directory name.
+        manifest, _ = read_json(path / "package.json", [])
+        name = manifest.get("name")
+        return name if isinstance(name, str) and name else path.name
     if source is None or not os.path.isfile(source):
         return None
     try:
@@ -474,14 +544,17 @@ def _skills_in_source(root: Path, warnings: list[str]) -> list[FoundSkill]:
     return found + standalone
 
 
-def _configured_skill_paths(layer: _Layer, cwd: Path) -> list[Path]:
+def _configured_skill_paths(layer: _Layer, context: Context) -> list[Path]:
     """Read `skills` as a list (V2) or `{paths}` (V1). URLs can't be listed from disk."""
     skills = layer.data.get("skills")
     entries = skills.get("paths") if isinstance(skills, dict) else skills
     paths = []
     for entry in entries if isinstance(entries, list) else ():
         if isinstance(entry, str) and "://" not in entry:
-            paths.append(cwd / Path(entry).expanduser())
+            if entry.startswith("~/"):
+                paths.append(context.home / entry[2:])
+            else:
+                paths.append(context.cwd / entry)
     return paths
 
 
@@ -548,25 +621,69 @@ def _config_definition(
     )
 
 
-def _is_set(context: Context, *variables: str) -> bool:
-    return any(context.env.get(variable) for variable in variables)
+def _is_flag(context: Context, variable: str) -> bool:
+    return _is_true(context.env.get(variable))
+
+
+def _is_true(value: str | None) -> bool:
+    return value is not None and value.lower() in ("1", "true")
+
+
+def _project_config_is_off(context: Context) -> bool:
+    """The newer name decides whenever it's set, even to something false."""
+    value = context.env.get("OPENCODE_CONFIG_PROJECT_DISABLE")
+    return _is_true(
+        value if value is not None else context.env.get("OPENCODE_DISABLE_PROJECT_CONFIG")
+    )
+
+
+def _custom_config(context: Context) -> Path | None:
+    """OpenCode's service, not the current directory, resolves a relative path, so it's ignored."""
+    value = context.env.get("OPENCODE_CONFIG")
+    return Path(value) if value and os.path.isabs(value) else None
+
+
+def _is_direct_legacy_server(value: object) -> bool:
+    return isinstance(value, dict) and value.get("type") in ("local", "remote")
+
+
+def _legacy_server_entries(mcp: dict) -> dict:
+    entries = {}
+    for name, value in mcp.items():
+        if name in ("servers", "timeout") and not _is_direct_legacy_server(value):
+            continue
+        # OpenCode drops an entry with only `enabled` and no `type`.
+        if (
+            isinstance(value, dict)
+            and "type" not in value
+            and isinstance(value.get("enabled"), bool)
+        ):
+            continue
+        entries[name] = value
+    return entries
+
+
+def _native_server_entries(mcp: dict) -> dict:
+    servers = mcp.get("servers")
+    return servers if isinstance(servers, dict) and not _is_direct_legacy_server(servers) else {}
 
 
 def _server_entries(data: dict) -> dict:
-    """Return servers from `mcp.servers` (V2) or `mcp.<name>` (V1)."""
+    """Merge servers from `mcp.<name>` (V1) and `mcp.servers` (V2). V2 wins a name in both."""
     mcp = data.get("mcp")
     if not isinstance(mcp, dict):
         return {}
-    servers = mcp.get("servers")
-    if isinstance(servers, dict) and "type" not in servers:
-        return servers
-    return mcp
+    return {**_legacy_server_entries(mcp), **_native_server_entries(mcp)}
 
 
-def _server_status(entry: object, data: dict, reliable: bool) -> Status:
+def _is_native_server(data: dict, name: str) -> bool:
+    mcp = data.get("mcp")
+    return isinstance(mcp, dict) and name in _native_server_entries(mcp)
+
+
+def _server_status(entry: object, is_v2: bool, reliable: bool) -> Status:
     if not reliable or not isinstance(entry, dict):
         return Status.UNKNOWN
-    is_v2 = _server_entries(data) is not data.get("mcp")
     if is_v2:
         off = entry.get("disabled", False)
     else:
@@ -596,3 +713,26 @@ def _managed_dir(context: Context) -> Path:
     if sys.platform == "darwin":
         return context.system_root / "Library" / "Application Support" / "opencode"
     return context.system_root / "etc" / "opencode"
+
+
+def _managed_preferences(context: Context, warnings: list[str]) -> _Layer | None:
+    """Read macOS MDM preferences, which outrank the system directory. The first present counts."""
+    if sys.platform != "darwin":
+        return None
+    root = context.system_root / "Library" / "Managed Preferences"
+    for path in (root / getpass.getuser() / _PREFERENCES_FILE, root / _PREFERENCES_FILE):
+        if not os.path.isfile(path):
+            continue
+        import plistlib  # Only here, because it's slow to import and only macOS needs it.
+
+        try:
+            with open(path, "rb") as file:
+                data = plistlib.load(file)
+        except (OSError, ValueError, plistlib.InvalidFileException) as error:
+            warnings.append(f"cannot read {path}: {error}")
+            return None
+        if not isinstance(data, dict):
+            return None
+        config = {key: value for key, value in data.items() if key not in _PREFERENCE_METADATA}
+        return _Layer(path, Scope.SYSTEM, config)
+    return None

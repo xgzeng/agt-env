@@ -17,6 +17,7 @@ OpenCode has two sets of docs, and the unversioned ones describe V1. Use the V2 
 
 **V1:**
 - [Config](https://opencode.ai/docs/config/)
+- [CLI, including environment variables](https://opencode.ai/docs/cli)
 - [Skills](https://opencode.ai/docs/skills/)
 - [MCP servers](https://opencode.ai/docs/mcp-servers/)
 - [Plugins](https://opencode.ai/docs/plugins/)
@@ -29,7 +30,15 @@ OpenCode has two sets of docs, and the unversioned ones describe V1. Use the V2 
 | Project config is `opencode.json(c)` and `.opencode/opencode.json(c)` | Doc + Tested |
 | Project config is searched from the current directory to the filesystem root | Doc |
 | A `.opencode` config overrides every direct config, and managed config overrides everything | Doc |
-| Managed config is in `/etc/opencode` on Linux and `/Library/Application Support/opencode` on macOS | Doc |
+| Managed config is in `/etc/opencode` on Linux and `/Library/Application Support/opencode` on macOS | Doc, Tested on Linux |
+| That directory also holds skills, agents, commands, and plugins, which win over all others | Tested on Linux |
+| macOS MDM preferences at `/Library/Managed Preferences/<user>/ai.opencode.managed.plist`, or without `<user>`, outrank it. The first present counts | Doc, Source for the order |
+| `OPENCODE_CONFIG_DIR` replaces the global directory. The V1 docs say it adds a layer, but the real agent doesn't read `~/.config/opencode` at all | Tested, contradicts Doc |
+| `OPENCODE_CONFIG` names one more config file, loaded above the global one. A relative path didn't load, as the service doesn't run in the project | Doc + Tested |
+| `OPENCODE_DISABLE_PROJECT_CONFIG`, or the newer `OPENCODE_CONFIG_PROJECT_DISABLE`, drops all of a project's config, skills, agents, commands, and plugins. The newer one decides whenever it's set | Doc, Tested for both |
+| `OPENCODE_DISABLE_CLAUDE_CODE` and `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` drop `.claude/skills`, at user and project level | Doc + Tested |
+| These flags are on only for `1` or `true`, in any case. `0` and `false` leave things as they are | Tested, Source |
+| `OPENCODE_DISABLE_EXTERNAL_SKILLS` is documented for V1, and does nothing in this version | Tested |
 | V1 config keeps working and is converted in memory | Doc + Tested |
 
 ## Skills
@@ -43,7 +52,7 @@ OpenCode has two sets of docs, and the unversioned ones describe V1. Use the V2 
 | Among the compatibility sources, from lowest: `~/.claude/skills`, `.claude/skills`, `~/.agents/skills`, `.agents/skills` | Tested |
 | Skills conflict by ID, not `name`. Same-named skills with different IDs both load | Tested |
 | `SKILL.md` can be nested in grouping directories | Doc + Tested |
-| Search stops six directories below the source root | Doc + Tested |
+| Search stops six directories below the source root, so `SKILL.md` can be in the sixth | Doc + Tested |
 | A directory containing `SKILL.md` is one skill, and isn't searched for more | Doc + Tested |
 | Hidden files and directories and `node_modules` are skipped | Doc + Tested |
 | Markdown files count as skills only at a source root | Doc + Tested |
@@ -70,6 +79,9 @@ Permissions control skills:
 | A V2 server's `enabled` field is ignored | Doc + Tested |
 | V1's `enabled: false` still works | Doc + Tested |
 | An `enabled`-only V1 entry without a `type` is ignored with a warning | Doc + Tested |
+| V1 and V2 servers in one file merge, and V2 wins a name in both | Tested |
+| `mcp.timeout` is a setting, not a server, unless it has a `type` of `local` or `remote`. So is `mcp.servers` | Tested, Source |
+| An invalid entry is dropped when its file is read, so it doesn't replace a lower layer's valid one | Tested |
 | A higher-precedence entry replaces the whole server object, without merging fields | Doc |
 
 ## Plugins
@@ -81,6 +93,8 @@ Permissions control skills:
 | Configured local paths must be directories, and a single file is skipped | Doc + Tested |
 | Auto-discovery under `plugins/` loads direct `.ts` and `.js` files and immediate package directories | Doc + Tested |
 | A package directory uses `package.json` exports, or a root `server` or `index` file | Doc, Tested for `index.ts` |
+| A directory with only `gui-experimental.cjs` or `.js` also counts. A `.ts` one doesn't | Tested |
+| Only `./`, `../`, absolute paths, and `file://` are local. `~/x` is treated as a package name, and fails to load | Tested |
 | V1 plugin implementations don't run in V2 | Doc + Tested |
 | A `-` prefix on an ID or wildcard disables a plugin | Doc + Tested |
 | A plugin directory's `skills/` isn't read, so it contributes no skills | Tested |
@@ -90,6 +104,9 @@ Permissions control skills:
 | Rule | Evidence |
 |---|---|
 | Agents are `*.md` under `agents/` or `agent/`, in the global directory and `.opencode`, searched recursively | Doc + Tested |
+| Files directly in `modes/` or `mode/` are primary agents, applied after the agent directories, so a mode beats a same-named agent | Doc + Tested |
+| The plural directory beats the singular one, because files apply in sorted order | Tested |
+| A command's description comes only from its frontmatter, not its text | Tested |
 | Commands are the same under `commands/` or `command/` | Doc + Tested |
 | The ID is the path without its extension. A `name` field doesn't change it | Doc + Tested |
 | Config entries are under `agents` and `commands` (V2) or `agent` and `command` (V1) | Doc + Tested |
@@ -107,24 +124,25 @@ OpenCode has no hook config. Hooks only come from plugin code, which `agt-env` d
 - **`.claude` directories:** `.claude/agents` and `.claude/commands` aren't read, unlike `.claude/skills`.
 
 - **Skill IDs:** a skill's ID is its directory or file name, without any parent path. `skills/group/nested/SKILL.md` has the ID `nested`, and the `name` field only changes the display name. Permission rules are documented to match IDs.
-- **What "six directories" counts:** `SKILL.md` can be at most five directories below a source. The file itself is the sixth level.
 - **Standalone skills in every source:** root `*.md` files load from `.claude/skills`, `.agents/skills`, and the `skills` config too. A nested `.md` file doesn't.
 - **The `skills` config:** a path entry can be a directory of skills or one skill directory. The V1 form `{"paths": [...]}` still works.
 - **Singular directories globally:** `~/.config/opencode/skill/` and `~/.config/opencode/plugin/` both work. The docs only mention the project forms.
 - **`.mjs` plugins:** these aren't loaded. The docs just don't mention `.mjs`.
 - **Compatibility directories nest too:** `~/.claude/skills/<group>/<skill>/SKILL.md` loads. So skills under Claude Code's `skills/synced` directory can appear in OpenCode, though Claude Code's own layout differs.
 - **Denied skills stay in the API:** a denied skill still appears in `/api/skill`, so that list doesn't reflect permissions.
-- **Plugin removal order:** `plugins` entries apply in order, after auto-discovered plugins. A removal affects what came before it, so a later entry can re-add a plugin.
+- **Plugin order:** `plugins` entries apply in order, after auto-discovered plugins. A removal affects what came before it, and a later entry can turn it back on by ID or pattern: `["-*", "opencode.config.skill"]` keeps only OpenCode's own skills.
 - **Plugin removal patterns:** a removal matches an exact ID, `*`, or `prefix.*`. `-id-*` does nothing, and neither does a file name such as `-local`, because IDs are defined in the plugin's code.
 - **Skill conflicts within a source:** with one ID, a later nested directory beats an earlier one, a directory beats a same-named `.md` file, and `skills/` beats `skill/`.
 - **What takes an ID:** a standalone `.md` file, and a skill with no description or frontmatter, beat a lower source. A dangling link doesn't.
-- **Removing built-ins:** `-*` also removes built-in plugins. `-opencode.config.skill` makes all skills on disk disappear, `-opencode.config.mcp` does the same for servers, and `-opencode.skill` only removes built-in skills. `-opencode.config.compatibility` drops the `.claude/skills` and `.agents/skills` sources at user and project level, and keeps OpenCode's own.
+- **Removing built-ins:** `-*` also removes built-in plugins. Each kind of item on disk comes from its own built-in plugin. `-opencode.config.skill` drops OpenCode's own skill sources and the `skills` config, and `-opencode.config.compatibility` drops the `.claude/skills` and `.agents/skills` sources, so each keeps what the other provides. `-opencode.config.mcp`, `-opencode.config.agent`, and `-opencode.config.command` do the same for servers, agents, and commands. `-opencode.skill` only removes built-in skills.
 - **Plugin load failures:** `/api/plugin` shows a failed plugin as `state.status: "failed"`, and a missing configured directory fails the same way. A configured single file is skipped without appearing at all.
-- **Invalid V2 entries are dropped:** a server with an unknown `type` doesn't appear in `/api/mcp`. `agt-env` shows it as `broken`.
+- **Invalid entries are dropped:** a server with an unknown `type` doesn't appear in `/api/mcp`. Where no other layer defines that name, `agt-env` shows it as `broken`.
 - **Server API:** `/api/skill`, `/api/mcp`, `/api/plugin`, and `/api/config` need Basic auth, with user `opencode` and the password from `service.json`. The `x-opencode-directory` header selects the project. A `?directory=` query is ignored, and answers for the service's own directory.
 - **`opencode mcp list` reported "No MCP servers configured"** while `/api/mcp` listed the same servers, so it can't be used as a check.
 - **Background service:** most CLI commands start a service on a fixed port (49374 by default). A service for another `HOME` on that port makes them fail until you run `opencode service set port <port>`. It also needs a moment to load config after starting.
-- **Environment variables seen only in the binary:** `OPENCODE_DISABLE_CLAUDE_CODE`, `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`, and `OPENCODE_DISABLE_PROJECT_CONFIG` appear in the binary, but not in the pages we read.
+- **Where credentials are:** provider credentials are in `~/.local/share/opencode/opencode.db`, and the service's password in `service.json` in the global config directory. `agt-env` opens neither.
+
+Rules labelled **Source** were read in [`anomalyco/opencode`](https://github.com/anomalyco/opencode) at tag `v2.2.5`.
 
 ## How `agt-env` handles what it can't observe
 
@@ -138,12 +156,14 @@ OpenCode has no hook config. Hooks only come from plugin code, which `agt-env` d
 
 - `XDG_CONFIG_HOME` moves the global config directory. The V2 docs state this only for `cli.json`.
 - `opencode.json` and `opencode.jsonc` in one directory are both read, with `.jsonc` applied later. Testing confirmed both are read, but not which wins.
-- The `OPENCODE_DISABLE_*` variables above do what their names say. `agt-env` honors them, but their effect wasn't tested.
 - `plugin` (V1) entries apply before `plugins` (V2) within one config file.
-- Among `skills` config entries, a later one beats an earlier one, and `OPENCODE_CONFIG_DIR` beats the global directory. Neither was tested.
+- Among `skills` config entries, a later one beats an earlier one. This wasn't tested.
+- A GUI-only plugin's ID is its package or directory name, as the source says. Removing one by that name wasn't tested.
+- macOS preferences were read in tests only from fixtures, because the agent could only be run on Linux here.
 
 ## Not covered by `agt-env`
 
+- Windows, where the system directory is under `%ProgramData%`. The PRD puts Linux and macOS first.
 - Built-in skills, plugins, agents, and commands.
 - Hooks, agents, and commands that plugins register in code.
 - Parent project directories, because `agt-env` treats the current directory as the project root.

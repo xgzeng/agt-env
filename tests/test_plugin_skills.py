@@ -65,8 +65,8 @@ def test_claude_skill_is_named_after_its_plugin(claude, capsys):
     write_skill(claude.plugin / "skills" / "third", named("p:prefixed"))
     assert skills(capsys) == {
         ("U/skill", "p:folder"): "enabled",
-        ("U/skill", "p:from-field"): "enabled",
-        ("U/skill", "p:prefixed"): "enabled",
+        ("U/skill", "p:other"): "enabled",
+        ("U/skill", "p:third"): "enabled",
     }
 
 

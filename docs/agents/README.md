@@ -7,10 +7,10 @@ How each supported agent finds its skills, MCP servers, extensions, hooks, subag
 | [Claude Code](claude-code.md) | `claude` | 2.1.316 | `claude mcp list`, `claude plugin list --json`, `claude plugin details`, the startup listing of `claude -p` |
 | [Codex](codex.md) | `codex` | 0.166.0 | `codex app-server`, `codex mcp list --json` |
 | [OpenCode](opencode.md) | `opencode` | 2.2.5 | Server API (`/api/skill`, `/api/mcp`, `/api/plugin`, `/api/agent`, `/api/command`) |
-| [Pi](pi.md) | `pi` | 1.4.0 | `pi --mode rpc`, `pi mcp list` |
+| [Pi](pi.md) | `pi` | 1.5.0 | `pi --mode rpc`, `pi mcp list` |
 | [Antigravity CLI](antigravity.md) | `agy` | 1.4.12 | `agy mcp list`, `agy plugin list`, `agy agents`, signed-in `/skills`, `/mcp`, and `/plugin` |
 
-Findings were last checked on 2026-10-31. Agents change often, so treat these as true of the versions above. Except where a page says otherwise, each agent ran against test fixtures in a temporary `HOME`.
+Findings were last checked on 2026-11-02. Agents change often, so treat these as true of the versions above. Except where a page says otherwise, each agent ran against test fixtures in a temporary `HOME`.
 
 ## Evidence labels
 
@@ -21,6 +21,7 @@ Every rule is labelled with where it comes from:
 | **Doc** | Stated in official documentation, not confirmed by running the agent |
 | **Tested** | Observed from the real agent, and not stated in the documentation we read |
 | **Doc + Tested** | Stated in the documentation and confirmed by the real agent |
+| **Source** | Read in the agent's published source at the tested version, not confirmed by running it |
 | **Assumed** | Neither documented nor tested. `agt-env` relies on it, but it may be wrong |
 
 ## Skill directories across agents
@@ -29,8 +30,8 @@ Some directories are read by more than one agent. This answers the PRD's open qu
 
 | Directory | Claude Code | Codex | OpenCode | Pi | Antigravity CLI |
 |---|---|---|---|---|---|
-| `~/.agents/skills` | No (not documented) | Yes | Yes | Yes | No (not listed by `/skills`) |
-| `.agents/skills` | No (not documented) | Yes | Yes | Yes | Yes |
+| `~/.agents/skills` | No (tested) | Yes | Yes | Yes | No (not listed by `/skills`) |
+| `.agents/skills` | No (tested) | Yes | Yes | Yes | Yes |
 | `~/.claude/skills` | Yes | No (not documented) | Yes | No (not documented) | No (not listed by `/skills`) |
 | `.claude/skills` | Yes | No (not documented) | Yes | No (not documented) | No (not documented) |
 
@@ -40,9 +41,10 @@ Some directories are read by more than one agent. This answers the PRD's open qu
 
 | Agent | File | Evidence |
 |---|---|---|
-| Claude Code | `~/.claude/.credentials.json` | Tested |
+| Claude Code | `~/.claude/.credentials.json`, or `.credentials.json` in `CLAUDE_CONFIG_DIR` | Tested |
 | Codex | `~/.codex/auth.json` | Tested |
-| OpenCode | `~/.local/share/opencode/auth.json`, `~/.config/opencode/auth.json` | Assumed |
+| OpenCode | `~/.local/share/opencode/opencode.db`, `service.json` in the global config directory | Tested |
+| OpenCode, older versions | `~/.local/share/opencode/auth.json`, `~/.config/opencode/auth.json` | Assumed |
 | Pi | `~/.pi/agent/auth.json` | Assumed |
 | Antigravity CLI | `~/.gemini/oauth_creds.json`, `~/.gemini/google_accounts.json`, `~/.gemini/antigravity-cli/oauth_creds.json` | Assumed |
 

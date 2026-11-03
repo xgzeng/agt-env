@@ -124,8 +124,8 @@ def test_long_path_is_not_cut(machine, capsys, tmp_path):
     write_skill(skills / ("x" * 60), "name: long\ndescription: d")
     (skills / ("y" * 60)).symlink_to(write_skill(tmp_path / "target", "name: link\ndescription: d"))
     found = details(run(capsys, "--detail")[1])
-    assert found["long"]["Path"] == f"~/.claude/skills/{'x' * 60}"
-    assert found["link"]["Path"] == f"~/.claude/skills/{'y' * 60} (symlink)"
+    assert found["x" * 60]["Path"] == f"~/.claude/skills/{'x' * 60}"
+    assert found["y" * 60]["Path"] == f"~/.claude/skills/{'y' * 60} (symlink)"
 
 
 def test_agent_with_no_items(machine, capsys):
@@ -309,7 +309,8 @@ def test_claude_frontmatter_name_and_defaults(machine, capsys):
     (skills / "bare").mkdir()
     (skills / "bare" / "SKILL.md").write_text("no frontmatter at all")
     found = {r[2]: r[4] for r in rows(run(capsys)[1])}
-    assert found == {"bare": "enabled", "fm-name": "enabled"}
+    assert found == {"bare": "enabled", "dir-name": "enabled"}
+    assert details(run(capsys, "--detail")[1])["dir-name"]["Display name"] == "fm-name"
 
 
 def test_claude_reserved_name_is_broken(machine, capsys):

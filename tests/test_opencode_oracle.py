@@ -121,10 +121,10 @@ def write_skills(api):
     write_skill(
         api.project / ".agents" / "skills" / "repo-agents", "name: repo-agents\ndescription: d"
     )
-    deep = skills
-    for level in range(1, 8):
-        deep = deep / f"l{level}"
-        write_skill(deep, f"name: depth{level}\ndescription: d") if level >= 5 else deep.mkdir()
+    # Separate branches, because a skill's directory isn't searched for more skills.
+    for depth in (5, 6, 7):
+        branch = "/".join(f"b{depth}-{level}" for level in range(depth))
+        write_skill(skills / branch, f"name: depth{depth}\ndescription: d")
     write_skill(skills / "outer", "name: outer\ndescription: d")
     write_skill(skills / "outer" / "inner", "name: inner\ndescription: d")
     write_skill(skills / "node_modules" / "pkg" / "in-modules", "name: in-modules\ndescription: d")
@@ -509,3 +509,265 @@ def test_commands_match(api):
     assert theirs["review"] == "mine" and ours["review"] == "mine"
     assert theirs["both"] == ours["both"] == "project"
     assert theirs["over-global"] == ours["over-global"] == "root config"
+
+
+# Rules from the review in docs/reviews/opencode.md, each compared with the real agent.
+
+
+def scan_with(api, env=None):
+    context = Context(
+        home=api.home,
+        cwd=api.project,
+        env={"PATH": "", **(env or {})},
+        system_root=api.tmp / "system",
+    )
+    return OpenCode().scan(context).items
+
+
+def running(items, kind):
+    return sorted(
+        item.name for item in items if item.kind is kind and item.status is Status.ENABLED
+    )
+
+
+def ids(data):
+    return sorted(entry.get("id") or entry.get("name") for entry in data)
+
+
+FIXTURE_SKILLS = {
+    "own",
+    "proj",
+    "agents-user",
+    "claude-user",
+    "agents-project",
+    "claude-project",
+    "own-project",
+}
+
+
+def on_disk(skills):
+    """Leave out OpenCode's built-in skills, which aren't listed here."""
+    return sorted(skill["id"] for skill in skills if skill["id"] in FIXTURE_SKILLS)
+
+
+def their_skills(api):
+    return on_disk(api("/api/skill"))
+
+
+def their_servers(api):
+    return sorted(server["name"] for server in api("/api/mcp"))
+
+
+def enabled_or_broken_servers(items):
+    return sorted(
+        item.name for item in items if item.kind is Kind.MCP and item.status is Status.ENABLED
+    )
+
+
+def test_a_moved_config_directory_replaces_the_global_one(api):
+    moved = api.tmp / "moved"
+    config = api.home / ".config" / "opencode"
+    write_skill(config / "skills" / "global-skill")
+    write_skill(moved / "skills" / "moved-skill")
+    write(config / "opencode.json", {"mcp": {"servers": {"global-server": LOCAL}}})
+    write(moved / "opencode.json", {"mcp": {"servers": {"moved-server": LOCAL}}})
+    ours = scan_with(api, {"OPENCODE_CONFIG_DIR": str(moved)})
+    assert running(ours, Kind.SKILL) == ["moved-skill"]
+    assert running(ours, Kind.MCP) == ["moved-server"]
+
+
+def test_mode_and_plural_directories_match(api):
+    config = api.home / ".config" / "opencode"
+    write(config / "commands" / "d.md", "---\ndescription: plural\n---\nt")
+    write(config / "command" / "d.md", "---\ndescription: singular\n---\nt")
+    write(config / "agents" / "a.md", "---\ndescription: plural\n---\nt")
+    write(config / "agent" / "a.md", "---\ndescription: singular\n---\nt")
+    write(config / "modes" / "m1.md", "---\ndescription: mode\n---\nt")
+    write(config / "mode" / "m2.md", "---\ndescription: mode\n---\nt")
+    write(config / "modes" / "sub" / "m3.md", "---\ndescription: mode\n---\nt")
+    write(config / "agents" / "m1.md", "---\ndescription: agent\n---\nt")
+    write(config / "commands" / "bare.md", "git status\n")
+    theirs = {agent["id"]: agent.get("description") for agent in api("/api/agent")}
+    commands = {command["name"]: command.get("description") for command in api("/api/command")}
+    ours = scan_with(api)
+    agents = {item.name: item.description for item in ours if item.kind is Kind.SUBAGENT}
+    for name, description in agents.items():
+        assert theirs[name] == description
+    assert "sub/m3" not in theirs and "sub/m3" not in agents
+    ours_commands = {item.name: item.description for item in ours if item.kind is Kind.COMMAND}
+    assert ours_commands["d"] == commands["d"] == "plural"
+    assert not commands["bare"] and not ours_commands["bare"]
+
+
+@pytest.mark.parametrize(
+    "mcp",
+    [
+        {"timeout": {"catalog": 5000}},
+        {"timeout": 5000, "one": LOCAL},
+        {"legacy": {**LOCAL, "enabled": False}, "servers": {"native": LOCAL}},
+        {"both": {"type": "remote", "url": "https://x.test"}, "servers": {"both": LOCAL}},
+        {"e": {"enabled": True}, "f": {"enabled": False}},
+    ],
+)
+def test_server_shapes_match(api, mcp):
+    write(api.home / ".config" / "opencode" / "opencode.json", {"mcp": mcp})
+    theirs = their_servers(api)
+    assert sorted(item.name for item in scan_with(api) if item.kind is Kind.MCP) == theirs
+
+
+@pytest.mark.parametrize(
+    ("low", "high"),
+    [
+        ({"servers": {"s": LOCAL}}, {"servers": {"s": {"type": "nope"}}}),
+        ({"s": LOCAL}, {"s": {"type": "local"}}),
+    ],
+)
+def test_an_invalid_higher_entry_leaves_the_lower_one(api, low, high):
+    write(api.home / ".config" / "opencode" / "opencode.json", {"mcp": low})
+    write(api.project / "opencode.json", {"mcp": high})
+    assert their_servers(api) == ["s"]
+    assert running(scan_with(api), Kind.MCP) == ["s"]
+
+
+@pytest.mark.parametrize(
+    "plugins",
+    [
+        ["-opencode.config.skill"],
+        ["-opencode.config.compatibility"],
+        ["-opencode.config.agent"],
+        ["-opencode.config.command"],
+        ["-*"],
+        ["-*", "opencode.config.skill"],
+        ["-*", "opencode.config.*"],
+        ["-opencode.config.skill", "opencode.config.skill"],
+        ["-lp.id", "lp.id"],
+    ],
+)
+def test_plugin_operations_apply_in_order(api, plugins):
+    config = api.home / ".config" / "opencode"
+    write_skill(config / "skills" / "own")
+    write_skill(api.project / ".opencode" / "skills" / "proj")
+    write_skill(api.home / ".agents" / "skills" / "agents-user")
+    write_skill(api.home / ".claude" / "skills" / "claude-user")
+    write_skill(api.project / ".agents" / "skills" / "agents-project")
+    write(config / "commands" / "cm.md", "---\ndescription: d\n---\nt")
+    write(config / "agents" / "am.md", "---\ndescription: d\n---\nt")
+    write(config / "plugins" / "lp.ts", "export default {id: 'lp.id', setup: async () => ({})}\n")
+    write(
+        config / "opencode.json",
+        {
+            "plugins": plugins,
+            "commands": {"cfgc": {"template": "t"}},
+            "mcp": {"servers": {"m": LOCAL}},
+        },
+    )
+    skills = their_skills(api)
+    servers = their_servers(api)
+    commands = {command["name"] for command in api("/api/command")}
+    agents = {agent["id"] for agent in api("/api/agent")}
+    active = {
+        plugin.get("id")
+        for plugin in api("/api/plugin")
+        if (plugin.get("state") or {}).get("status") == "active"
+    }
+    ours = scan_with(api)
+    assert running(ours, Kind.SKILL) == skills
+    assert running(ours, Kind.MCP) == servers
+    assert set(running(ours, Kind.COMMAND)) == commands & {"cm", "cfgc"}
+    assert set(running(ours, Kind.SUBAGENT)) == agents & {"am"}
+    assert ("lp" in running(ours, Kind.PLUGIN)) is ("lp.id" in active)
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"OPENCODE_DISABLE_PROJECT_CONFIG": "0"},
+        {"OPENCODE_DISABLE_PROJECT_CONFIG": "1"},
+        {"OPENCODE_DISABLE_PROJECT_CONFIG": "TRUE"},
+        {"OPENCODE_CONFIG_PROJECT_DISABLE": "1"},
+        {"OPENCODE_CONFIG_PROJECT_DISABLE": "0", "OPENCODE_DISABLE_PROJECT_CONFIG": "1"},
+        {"OPENCODE_DISABLE_CLAUDE_CODE": "false"},
+        {"OPENCODE_DISABLE_CLAUDE_CODE": "1"},
+        {"OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "true"},
+    ],
+)
+def test_environment_flags_match(tmp_path, env):
+    """Runs its own service, because the fixture's doesn't get these variables."""
+    home, project = tmp_path / "home", tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    write_skill(home / ".claude" / "skills" / "claude-user")
+    write_skill(project / ".claude" / "skills" / "claude-project")
+    write_skill(project / ".opencode" / "skills" / "own-project")
+    write_skill(home / ".agents" / "skills" / "agents-user")
+    write(project / "opencode.json", {"mcp": {"servers": {"pm": LOCAL}}})
+    full_env = {"HOME": str(home), "PATH": os.environ["PATH"], "TERM": "dumb", **env}
+
+    def run(*args):
+        return subprocess.run(
+            [OPENCODE, *args],
+            check=False,
+            cwd=project,
+            env=full_env,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    run("service", "set", "port", str(port))
+    try:
+        run("debug", "config")
+        time.sleep(3)
+        password = json.loads((home / ".config" / "opencode" / "service.json").read_text())[
+            "password"
+        ]
+        token = base64.b64encode(f"opencode:{password}".encode()).decode()
+
+        def query(route):
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{port}{route}",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Basic {token}",
+                    "x-opencode-directory": str(project),
+                },
+            )
+            for _ in range(40):
+                try:
+                    with urllib.request.urlopen(request, timeout=30) as response:
+                        return json.load(response)["data"]
+                except OSError:
+                    time.sleep(0.5)
+            raise AssertionError(f"no answer from {route}")
+
+        skills = on_disk(query("/api/skill"))
+        servers = sorted(server["name"] for server in query("/api/mcp"))
+    finally:
+        run("service", "stop")
+    context = Context(home=home, cwd=project, env={"PATH": "", **env}, system_root=tmp_path / "sys")
+    items = OpenCode().scan(context).items
+    assert running(items, Kind.SKILL) == skills
+    assert running(items, Kind.MCP) == servers
+
+
+def test_gui_plugins_and_a_tilde_match(api):
+    config = api.home / ".config" / "opencode"
+    write(config / "plugins" / "gui-cjs" / "gui-experimental.cjs", "module.exports = {}\n")
+    write(config / "plugins" / "gui-js" / "gui-experimental.js", "module.exports = {}\n")
+    write(config / "plugins" / "gui-ts" / "gui-experimental.ts", "export default {}\n")
+    write(config / "plugins" / "empty" / "x.txt", "x")
+    write(api.home / "x" / "index.ts", PLUGIN)
+    write(config / "opencode.json", {"plugins": ["~/x"]})
+    theirs = {
+        plugin.get("id"): (plugin.get("state") or {}).get("status")
+        for plugin in api("/api/plugin")
+        if not str(plugin.get("id")).startswith("opencode.")
+    }
+    assert theirs.get("gui-cjs") == theirs.get("gui-js") == "active"
+    assert "gui-ts" not in theirs and "empty" not in theirs
+    ours = {item.name: item for item in scan_with(api) if item.kind is Kind.PLUGIN}
+    assert ours["gui-cjs"].status is ours["gui-js"].status is Status.ENABLED
+    assert "gui-ts" not in ours and "empty" not in ours
+    assert ours["~/x"].native_kind == "npm plugin"

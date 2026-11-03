@@ -105,9 +105,9 @@ def test_home_and_project_directory_paths_do_not_match_every_item(agents, capsys
     assert names(capsys, "-p", str(project), "distinctive") == []
 
 
-def test_path_is_searched_though_not_printed(agents, capsys):
+def test_a_display_name_is_searched(agents, capsys):
     write_skill(agents.home / ".claude" / "skills" / "dir-only", "name: renamed\ndescription: d")
-    assert names(capsys, "dir-only") == ["renamed"]
+    assert names(capsys, "renamed") == ["dir-only"]
 
 
 def test_different_filters_narrow_each_other(agents, capsys):
@@ -152,7 +152,8 @@ def test_hidden_agents_are_searched_with_all_or_agent(machine, capsys):
     write_skill(machine.home / ".agents" / "skills" / "kept", "name: kept\ndescription: d")
     (machine.home / ".codex").mkdir()  # configured, not installed
     assert names(capsys, "kept") == []
-    assert names(capsys, "kept", "--all") == ["kept"]
+    # OpenCode and Pi read this directory too, so they count as configured as well.
+    assert names(capsys, "kept", "--all") == ["kept", "kept", "kept"]
     assert names(capsys, "kept", "-a", "codex") == ["kept"]
 
 

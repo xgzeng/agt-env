@@ -15,11 +15,17 @@ CREDENTIAL_STORES = [
     ".claude/.credentials.json",
     ".codex/auth.json",
     ".local/share/opencode/auth.json",
+    ".local/share/opencode/opencode.db",
+    ".local/state/opencode/service.json",
+    ".config/opencode/service.json",
     ".config/opencode/auth.json",
     ".pi/agent/auth.json",
     ".gemini/oauth_creds.json",
     ".gemini/google_accounts.json",
     ".gemini/antigravity-cli/oauth_creds.json",
+    ".gemini/antigravity-cli/jetski_state.pbtxt",
+    ".gemini/antigravity-cli/jetbox_summaries_proto.pb",
+    ".gemini/antigravity-cli/conversation_summaries.db",
 ]
 CREDENTIAL_NAME = re.compile(r"auth|cred|oauth|token|secret|account|\.env", re.IGNORECASE)
 CONFIG_READ = [
@@ -103,13 +109,13 @@ def agents(machine):
     return machine
 
 
-def audit(machine, tmp_path, mode, args):
+def audit(machine, tmp_path, mode, args, env=None):
     log = tmp_path / "audit.json"
     output = RUNNERS[mode](
         machine,
         *args,
         code=AUDITED,
-        env={"AUDIT_LOG": str(log), "PYTHONDONTWRITEBYTECODE": "1"},
+        env={"AUDIT_LOG": str(log), "PYTHONDONTWRITEBYTECODE": "1", **(env or {})},
     )
     return output, json.loads(log.read_text())
 
@@ -140,6 +146,30 @@ def test_the_audit_sees_config_being_read(agents, tmp_path, mode):
     _, log = audit(agents, tmp_path, mode, ())
     opened = under_test_directories(agents, log["opened"])
     assert {str(agents.home / path) for path in CONFIG_READ} <= opened
+
+
+@pytest.mark.parametrize("mode", RUNNERS)
+def test_credential_store_in_a_moved_config_directory_is_never_opened(machine, tmp_path, mode):
+    machine.install("claude")
+    moved = tmp_path / "moved"
+    write_skill(moved / "skills" / "here", "description: d")
+    write_json(moved / ".credentials.json", {"access_token": SECRET})
+    output, log = audit(machine, tmp_path, mode, ("--detail",), {"CLAUDE_CONFIG_DIR": str(moved)})
+    assert "here" in output and SECRET not in output
+    assert str(moved / "skills" / "here" / "SKILL.md") in log["opened"]
+    assert str(moved / ".credentials.json") not in log["opened"]
+
+
+@pytest.mark.parametrize("mode", RUNNERS)
+def test_codex_credential_store_in_a_moved_home_is_never_opened(machine, tmp_path, mode):
+    machine.install("codex")
+    moved = tmp_path / "moved"
+    write_skill(moved / "skills" / "here", "description: d")
+    write_json(moved / "auth.json", {"access_token": SECRET})
+    output, log = audit(machine, tmp_path, mode, ("--detail",), {"CODEX_HOME": str(moved)})
+    assert "here" in output and SECRET not in output
+    assert str(moved / "skills" / "here" / "SKILL.md") in log["opened"]
+    assert str(moved / "auth.json") not in log["opened"]
 
 
 @pytest.mark.parametrize("args", ARGUMENTS)

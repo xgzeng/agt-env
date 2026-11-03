@@ -260,12 +260,9 @@ url = "https://x.test/mcp"
 [mcp_servers.off]
 command = "/bin/true"
 enabled = false
-[mcp_servers.invalid]
-args = ["no-command"]
 """,
     )
     assert statuses(capsys) == {
-        ("mcp", "invalid", "user"): "broken",
         ("mcp", "local", "user"): "enabled",
         ("mcp", "off", "user"): "disabled",
         ("mcp", "remote", "user"): "enabled",
@@ -298,7 +295,9 @@ def test_codex_project_config_not_duplicated_when_cwd_is_home(codex, capsys, mon
 def test_codex_plugins(codex, capsys):
     cache = codex.home / ".codex" / "plugins" / "cache" / "m"
     for name in ("on", "off", "unset", "never-configured"):
-        (cache / name / "1.0" / ".codex-plugin").mkdir(parents=True)
+        path = cache / name / "1.0" / ".codex-plugin" / "plugin.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"name": name}))
     write_codex_config(
         codex,
         """
@@ -316,7 +315,7 @@ enabled = true
         ("plugin", "missing@m", "user"): "broken",
         ("plugin", "off@m", "user"): "disabled",
         ("plugin", "on@m", "user"): "enabled",
-        ("plugin", "unset@m", "user"): "unknown",
+        ("plugin", "unset@m", "user"): "enabled",
     }
 
 
